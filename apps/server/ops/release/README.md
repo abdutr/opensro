@@ -172,10 +172,16 @@ without them is refused before it changes anything.
 1. `publish` closes the gate: `<module>/.state/cluster/maintenance-gate.json`
    lists those accounts, and every GameWorld then mints EnterWorld tokens for
    them alone (`SRO_MAINTENANCE_GATE_PATH`, set by `sro-nomad`). It then
-   announces, backs up, stops the fleet and runs the server's offline upgrade
-   on every enabled shard. Each shard is journaled before its commit, then
-   with the backup the upgrade kept and its sha256, before the new server
-   deploys and the client switches.
+   backs up, announces, stops the fleet, validates the new release
+   (`sro-nomad validate`) and runs the server's offline upgrade on every
+   enabled shard. Each shard is journaled before its commit, then with the
+   backup the upgrade kept and its sha256, before the new server deploys and
+   the client switches. Validation follows the stop because `sro-nomad`
+   refuses to replace a credential variable while its job is registered: a
+   release that adds a credential (anything `sro-provision-identity` creates,
+   such as `public-api-token`) changes one, so only a maintenance release can
+   ship it. A plain release still validates before anything stops (opensro
+   #759, after the 2026-10-11 failed publish).
 2. The release gate runs as the probe account against the closed window, and
    its evidence is recorded as for any pair.
 3. `confirm` records the release, then removes the gate: players refresh and
@@ -188,6 +194,10 @@ without them is refused before it changes anything.
    missing or changed, or a shard journaled without one, refuses the restore
    and leaves the journal `revert-failed` with the gate closed for an
    operator.
+
+A failed request's reason is in the host journal (`journalctl -t
+opensro-release`, secret-like strings masked) as well as on the operator's
+SSH stream.
 
 After confirm, no workflow crosses the schema back; that takes restoring
 the upgrade's backup by hand. After any manual recovery, reopen the game by
