@@ -9,6 +9,8 @@ production owners. Seeded server publications are explicit; no sale is settled.
 import type { ExtendedRecipe, RecipeContext } from "./extended";
 import { decodeTooltipSkills } from "../../src/engine/foundation/ui/skill-tooltip-catalog";
 import { createCountJobs } from "../../src/engine/foundation/gameplay/count-job";
+import { decodeSkillUi } from "../../src/engine/foundation/ui/skill-layout";
+import { decodeCosReferences } from "../../src/engine/foundation/ui/cos-command";
 import { herb, npc, openPanel, press, published } from "./recipe-input";
 
 /*
@@ -20,9 +22,9 @@ The learned ranks and inventory are synthetic character state.
 ================
 */
 async function restoration( context: RecipeContext, npcMode: boolean, confirmation: boolean, pending = false ) {
-	const layout = await published( "skillUi" );
+	const layout = decodeSkillUi( await published( "skillUi" ) );
 	const skills = decodeTooltipSkills( await published( "skillData" ) );
-	const entry = layout.skills.find( ( row: any ) => row.mastery === 257 && row.row === 0 && row.column === 0 );
+	const entry = layout.skills.find( row => row.mastery === 257 && row.row === 0 && row.column === 0 );
 	if ( !entry ) throw Error( "Published first Bicheon skill is unavailable" );
 	const ranks = [ ...skills.values() ].filter( row => row.groupId === entry.group && row.basicLevel <= 3 );
 	const learned = ranks.reduce( ( a, b ) => a.basicLevel > b.basicLevel ? a : b );
@@ -143,10 +145,8 @@ companion
 ================
 */
 async function companion( context: RecipeContext, tab: number ) {
-	const reference = await published( "cosPresentation" );
-	const refObjId = Number(
-		Object.keys( reference.rows ).find( key => /rabbit/i.test( String( reference.rows[key][0] ) ) )
-	);
+	const references = decodeCosReferences( await published( "cosPresentation" ) );
+	const refObjId = [ ...references ].find( ( [, reference] ) => /rabbit/i.test( reference.icon ) )?.[0];
 	if ( !refObjId ) throw Error( "Published pickup rabbit reference unavailable" );
 	context.state.gameplay.cosRecords = [ {
 		gid: 7,
@@ -291,6 +291,7 @@ export const commerceRecipes: readonly ExtendedRecipe[] = [
 		async open( context ) {
 			await merchant( context );
 			const shop = context.state.gameplay.shop;
+			if ( !shop || !shop.offers[0] ) throw Error( "Specialty recipe requires the merchant offer" );
 			context.state.gameplay.shop = {
 				...shop,
 				cosGid: 7,

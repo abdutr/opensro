@@ -8,17 +8,16 @@ Checks ownership-sensitive interactions rather than enumerating server outcomes.
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
-const directory = "temp/artifacts/ui-qa/completion";
+import { UI_QA_ORIGIN } from "./settings.mjs";
+import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { fetchCatalogIdentity } from "./catalog-client.mjs";
+const directory = artifactDirectory( "completion" );
 await mkdir( directory, { recursive: true } );
 const { browser, page } = await launchProbeBrowser( { viewport: { width: 1500, height: 1150 } } );
 const errors = [], external = [], evidence = [];
 let identity, outcome = "incomplete";
 page.on( "pageerror", error => errors.push( String( error ) ) );
-page.on( "request", request => {
-	if ( /^https?:/.test( request.url() ) && !request.url().startsWith( "http://127.0.0.1:5190/" ) ) {
-		external.push( request.url() );
-	}
-} );
+await guardReviewRequests( page.context(), external );
 
 /*
 ================
@@ -53,11 +52,11 @@ async function capture( frame, name ) {
 }
 
 try {
-	await page.goto( "http://127.0.0.1:5190/" );
+	await page.goto( UI_QA_ORIGIN + "/" );
 	await page.waitForFunction( () =>
 		document.querySelector( "#runtime-status" )?.textContent?.includes( "controls" )
 	);
-	identity = (await (await page.request.get( "http://127.0.0.1:5190/__uiqa/catalog" )).json()).identity;
+	identity = await fetchCatalogIdentity();
 	let frame = await choose( "frontend:stage-populated" );
 	let value = await frame.evaluate( () => window.__uiQa.snapshot() );
 	assert.equal( value.characters.dock, true );
@@ -127,7 +126,7 @@ try {
 	} );
 	assert.deepEqual( missing, [] );
 	await capture( frame, "exact-integer-export" );
-	const finalIdentity = (await (await page.request.get( "http://127.0.0.1:5190/__uiqa/catalog" )).json()).identity;
+	const finalIdentity = await fetchCatalogIdentity();
 	assert.equal( finalIdentity.fingerprint, identity.fingerprint );
 	assert.deepEqual( errors, [] );
 	assert.deepEqual( external, [] );

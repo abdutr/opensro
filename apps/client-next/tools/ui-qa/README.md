@@ -14,8 +14,15 @@ $env:SRO_GAME_ROOT = '<path-to-your-licensed-v1.150-client>'
 node node_modules/vite/bin/vite.js --config apps/client-next/tools/ui-qa/vite.config.mjs
 ```
 
-Open <http://127.0.0.1:5190/> in an isolated Chrome profile. The server binds only
-to loopback and refuses a busy port. The existing generated-root and native-root
+Open the loopback URL printed by Vite in an isolated Chrome profile. `settings.mjs`
+owns `UI_QA_PORT` and `UI_QA_ORIGIN`, shared by the server and probes; the port is
+separate from the operator console's default. Print the current URL with:
+
+```powershell
+node --input-type=module -e 'import { UI_QA_ORIGIN } from "./apps/client-next/tools/ui-qa/settings.mjs"; console.log(UI_QA_ORIGIN)'
+```
+
+The server binds only to loopback and refuses a busy port. The existing generated-root and native-root
 resolvers own asset locations; no assets are copied or regenerated.
 
 ## Review workflow
@@ -114,8 +121,11 @@ results record actual mount evidence, errors and control identities.
 
 The finite checklist separates A (unique implemented inaccessible layouts), B
 (essential local operation) and C (optional exhaustive permutations/integration).
-The remaining A blocker is specialty transport trading's production duplicate
-`close` identity. B has no identified outstanding harness operation. C does not
+Current main fixes the former specialty transport duplicate-close blocker.
+The actual `breadth:specialty-buy` recipe mounts the production quantity dialog,
+Shop and COS inventory with distinct close identities; closing the transport bag
+ends the local trade presentation. A has no identified outstanding unique layout.
+B has no identified outstanding harness operation. C does not
 block a usable human-review prototype. These inventory conclusions remain subject
 to new source evidence; a native resource entry does not prove an implemented UI.
 Review records never become approved merely because an admission probe passed.
@@ -126,10 +136,11 @@ COS tabs/target confirmations and premium uses. They check observed enabled
 controls before activating them. Sale quotes remain unacknowledged; no commerce
 settlement is faked. Premium uses and specialty goods use synthetic references;
 the package icon is explicitly a placeholder. Restoration ranks/costs come from
-published data through the production decoder. Specialty transport trading is a
-blocked production mount: both Shop and COS frames publish the default `close`
-identity. It reproduces with transport state already published and with a visible
-menu/request/reply sequence; the normal shop control passes. Assertions stay on.
+published data through the production decoder. Specialty transport trading now
+mounts with the upstream Shop/COS close fixes. The recipe directly seeds a
+merchant and transport publication, then activates the actual shop offer. It does
+not verify the preceding visible NPC menu/request/reply flow or live settlement.
+Duplicate-control assertions stay enabled.
 
 The `reach:` recipes add full Party leader/member permissions, incoming approval
 and timeout, Guild war agreement/result, soldier rows, warehouse and compensation,
@@ -147,21 +158,33 @@ normal game build has no import edge to this directory. CSP and absent proxies
 prevent the fixture from connecting to a game/report service.
 
 ```powershell
-node apps/client-next/node_modules/typescript/bin/tsc -p apps/client-next/tools/ui-qa/tsconfig.json
-node apps/client-next/tools/verify-ownership.mjs
-node apps/client-next/tools/verify-capabilities.mjs
-node apps/client-next/tools/generate-execution-map.mjs
+pnpm --filter @sro/client-next verify:quick
+pnpm --filter @sro/client-next verify:test-types
+node --test apps/client-next/tests/architecture/ui-qa-probe-support.test.mjs
 node apps/client-next/tools/ui-qa/probe.mjs
 node apps/client-next/tools/ui-qa/probe.mjs --interactions
 node apps/client-next/tools/ui-qa/probe-boundaries.mjs
 node apps/client-next/tools/ui-qa/probe-registry.mjs
 node apps/client-next/tools/ui-qa/probe-registry.mjs --extended
+node apps/client-next/tools/ui-qa/probe-specialty.mjs
 node --test apps/client-next/tests/runtime/ui-panel-sweep.test.mjs
 ```
 
 The Chrome probe targets the independently running loopback preview, uses the
 repository's isolated system-Chrome launcher, never rewrites served source, and
-closes its owned browser. Evidence goes to `temp/artifacts/ui-qa`. It exercises
+closes its owned browser. Evidence goes to `temp/artifacts/ui-qa` under the
+repository root, even when a probe starts from another working directory. The
+workbench TypeScript is included in the existing client `typecheck`; the shared
+JavaScript helpers and their unit coverage run in the existing test/type gates.
+Browser probes remain manual because they require prepared assets and Chrome.
+They install the shared browser-context request guard before navigation. This
+blocks external HTTP requests from the page, iframe and workers. Empty external
+lists mean no external request attempts were observed in that scenario; they do
+not alone prove request prevention. `probe-specialty.mjs` additionally attempts
+a different loopback port and checks `ERR_BLOCKED_BY_CLIENT`, recording that
+deliberate challenge separately from the scenario's zero external requests.
+
+The main probe exercises
 admission, real Guild transfer input, Stall coalesced naming, reset, review
 persistence/export and an unsupported inventory entry. Browser captures establish
 browser behavior only; native screenshots and server semantics remain separate.

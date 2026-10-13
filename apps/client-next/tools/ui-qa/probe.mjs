@@ -9,19 +9,17 @@ Screenshots are browser evidence, not native parity baselines.
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
+import { UI_QA_ORIGIN } from "./settings.mjs";
+import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { fetchCatalog } from "./catalog-client.mjs";
 
-const directory = "temp/artifacts/ui-qa";
+const directory = artifactDirectory();
 await mkdir( directory, { recursive: true } );
 const { browser, page } = await launchProbeBrowser( { viewport: { width: 1500, height: 1150 } } );
 const failures = [], network = [], evidence = [];
 let outcome = "incomplete";
 page.on( "pageerror", error => failures.push( String( error ) ) );
-page.on( "request", request => {
-	if (
-		!request.url().startsWith( "http://127.0.0.1:5190/" ) && !request.url().startsWith( "blob:" ) &&
-		!request.url().startsWith( "data:" )
-	) network.push( request.url() );
-} );
+await guardReviewRequests( page.context(), network );
 
 /*
 ================
@@ -71,7 +69,7 @@ async function capture( frame, name ) {
 }
 
 try {
-	await page.goto( "http://127.0.0.1:5190/", { waitUntil: "domcontentloaded" } );
+	await page.goto( UI_QA_ORIGIN + "/", { waitUntil: "domcontentloaded" } );
 	await page.waitForFunction(
 		() => document.querySelector( "#title" )?.textContent === "Tools and availability",
 		null,

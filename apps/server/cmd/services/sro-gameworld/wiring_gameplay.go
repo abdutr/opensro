@@ -20,6 +20,7 @@ import (
 	"opensro.online/server/internal/data/store"
 	"opensro.online/server/internal/domain"
 	"opensro.online/server/internal/game/action"
+	"opensro.online/server/internal/game/caravan"
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/gmcommand"
@@ -31,6 +32,7 @@ import (
 	"opensro.online/server/internal/game/siege"
 	livepresence "opensro.online/server/internal/game/social"
 	"opensro.online/server/internal/game/social/chat"
+	"opensro.online/server/internal/game/social/chatfeed"
 	"opensro.online/server/internal/game/social/community"
 	"opensro.online/server/internal/game/social/guild"
 	"opensro.online/server/internal/game/social/guildwar"
@@ -61,6 +63,7 @@ type gameplayPlane struct {
 	water         *movement.WaterValidator
 	presence      *livepresence.Directory
 	chat          *chat.Runtime
+	chatFeed      *chatfeed.Feed
 	parties       *party.Runtime
 	guildInvites  *guild.InviteRuntime
 	unions        *guild.UnionRuntime
@@ -159,6 +162,22 @@ func newGameplayPlane(
 	if len(extraGoods) > 0 {
 		log.Infof("commerce: %d extra NPC shop goods from %s", len(extraGoods), commerce.EnvShopExtraGoods)
 	}
+	// SRO_ELIXIR_DROPS_OFF (port-only, not native): elixirs leave every
+	// monster drop; the shop's extra goods must then sell all eight.
+	items.ElixirDrops = progression.ElixirDropsFromEnv()
+	if err := items.ElixirDrops.CheckSource(func(codename string) bool {
+		for _, good := range extraGoods {
+			if good.Codename == codename {
+				return true
+			}
+		}
+		return false
+	}, commerce.EnvShopExtraGoods); err != nil {
+		return nil, err
+	}
+	if items.ElixirDrops.Off() {
+		log.Infof("loot: elixir drops OFF (%s): the shop sells them", progression.EnvElixirDropsOff)
+	}
 	if err := items.ConfigureCommerce(devPaths.TextdataDir, extraGoods); err != nil {
 		return nil, fmt.Errorf("commerce catalogue: %w", err)
 	}
@@ -176,7 +195,16 @@ func newGameplayPlane(
 		deps.EntryBetaSilk = betaSilk.Starter
 		log.Infof("item mall: beta silk ON (%s): %d silk per in-world hour", action.EnvBetaSilk, betaSilkRate)
 	}
-	if err := items.ConfigureMall(devPaths.TextdataDir, mallAuthority); err != nil {
+	// SRO_MALL_EXTRA_GOODS (port-only, not native): authored packages the
+	// v1.150 mall does not list; "off" is the shipped mall (commerce/mallextra.go).
+	mallExtra, err := commerce.MallExtraGoodsFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	if len(mallExtra) > 0 {
+		log.Infof("mall: %d extra Item Mall goods from %s", len(mallExtra), commerce.EnvMallExtraGoods)
+	}
+	if err := items.ConfigureMall(devPaths.TextdataDir, mallAuthority, mallExtra); err != nil {
 		return nil, fmt.Errorf("mall catalogue: %w", err)
 	}
 	deps.SceneReferenceFrames = items.CommerceReferenceSeed
@@ -270,7 +298,6 @@ func newGameplayPlane(
 	items.GuildWars = warAuthority
 	items.GuildWarKill = guildWars.RecordKill
 	guildWars.Near = items.GuildWarMastersNear
-	guildWars.InFortress = items.GuildWarMasterInFortress
 	unions.GuildWars = warAuthority
 
 	communitySeeds := community.SeedFramesFunc(presence, deps.Letters)
@@ -506,6 +533,29 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	game.deps.MasteryTotalOverride = masteryOverride
 	// Port-only, not native: storage quick moves prefer a matching stack.
 	game.deps.StorageAutoStack = action.StorageAutoStackFromEnv()
+	// Port-only, not native: a GM's /SETSPEED.
+	game.items.GMSetSpeed = action.GMSetSpeedFromEnv()
+	if game.items.GMSetSpeed {
+		log.Infof("gm: /SETSPEED ON (%s)", action.EnvGMSetSpeed)
+	}
+	// A team death revives in place natively; "off" is the port-only town rule.
+	teamDeathRevive, err := action.TeamDeathReviveFromEnv()
+	if err != nil {
+		return err
+	}
+	game.items.TeamDeathTownRule = !teamDeathRevive
+	if game.items.TeamDeathTownRule {
+		log.Infof("rebirth: team deaths follow the town rule (%s off)", action.EnvTeamDeathRevive)
+	}
+	// Port-only, not native: the bandits per caravan ambush.
+	banditCap, err := caravan.BanditCapFromEnv()
+	if err != nil {
+		return err
+	}
+	game.items.CaravanBanditCap = banditCap
+	if banditCap > 0 {
+		log.Infof("caravan: at most %d bandits per ambush (%s)", banditCap, caravan.EnvBanditCap)
+	}
 	if game.deps.StorageAutoStack {
 		log.Infof("storage: quick moves auto-stack ON (%s)", action.EnvStorageAutoStack)
 	}
@@ -534,6 +584,18 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 		growth, deps := stats.Growth, game.deps
 		game.items.PetExpPace = func(ownerLevel int64) float64 { return growth.ExpPace(deps.LevelData(), ownerLevel) }
 		game.items.PartyShareFloor = true
+	}
+	// Port-only, not native, beta balance (owner 2026-10-13): degree-9
+	// alchemy goods only from the shop.
+	game.items.ShopOnly = progression.BetaShopOnlyDegree9FromEnv()
+	if game.items.ShopOnly.Enabled() {
+		log.Infof("progression: degree-9 Lucky Powder, magic and attribute stones no longer drop (%s)", progression.EnvBetaShopOnlyDegree9)
+	}
+	// Port-only, not native, beta balance (owner 2026-10-13): per-seal rare
+	// rates on top of RareRate. Off is today's rates.
+	game.items.SealRates = progression.BetaSealRatesFromEnv()
+	if game.items.SealRates.Enabled() {
+		log.Infof("progression: beta seal rates ON (%s): degrees 1-8 Star/Moon/Sun x3, degree 9 Star x3 Moon x5 Sun x1, on top of rare (SoX) x%d", progression.EnvBetaSealRates, max(game.items.RareRate, 1))
 	}
 	stats.Withdrawal = game.items.WithdrawalHooks()
 	stats.BaseStats = game.deps.PlayerBaseStats
@@ -639,6 +701,18 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 			action.SendFrames(session, frames)
 		}
 	}
+	// A member's guild frames: 0x3B29 deltas only while the session holds
+	// that guild's block (guild/baseline.go), every other frame as is, in
+	// one enqueue.
+	game.items.PushGuildFrames = func(divisionID, characterName string, guildID int64, frames []wire.Frame) {
+		for _, session := range hub.CharacterSessions(divisionID, characterName) {
+			guild.WithBlock(session, guildID, func(holds bool) {
+				if kept := guild.FilterDeltas(holds, frames); len(kept) > 0 {
+					action.SendFrames(session, kept)
+				}
+			})
+		}
+	}
 	game.items.PushDivisionPeerFrames = func(divisionID, exceptCharacterName string, frames []wire.Frame) {
 		if exceptCharacterName != "" {
 			// A character without a bound session is not in the world, so
@@ -707,6 +781,11 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	community.RegisterFriend(hub, game.deps, game.presence)
 	community.RegisterLetter(hub, game.deps, game.presence)
 	game.chat = chat.Register(hub, game.deps, game.presence, game.parties.Registry())
+	// The website's public chat feed (port-only): beta chat, the Global
+	// Chatting item and notices; a GM ban purges the player's lines.
+	game.chatFeed = chatfeed.New()
+	game.chat.Feed = game.chatFeed
+	game.items.PublicChat = game.chatFeed
 	game.chat.Unions = game.unions
 	game.chat.Stalls = game.items.Stalls
 	gmcommand.Register(hub, game.deps, game.presence, game.items)

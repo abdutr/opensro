@@ -354,6 +354,7 @@ func coalesceDivisionFrames(in []simulation.DivisionFrames) []simulation.Divisio
 			if last.Deliver == nil && last.DivisionID == routed.DivisionID &&
 				last.SourceGID == routed.SourceGID &&
 				last.ExceptSessionID == routed.ExceptSessionID &&
+				last.ExceptCharacterID == routed.ExceptCharacterID &&
 				last.OnlyCharacterID == routed.OnlyCharacterID {
 				last.Frames = append(last.Frames, routed.Frames...)
 				continue
@@ -492,6 +493,7 @@ func (rt *Runtime) forgetCharacterLocked(divisionID, characterName string) {
 	rt.berserkActors.Delete(simulation.WorldKey(divisionID, characterName))
 	rt.battleActors.Delete(simulation.WorldKey(divisionID, characterName))
 	rt.aggressionActors.Delete(simulation.WorldKey(divisionID, characterName))
+	rt.gmSpeeds.Delete(simulation.WorldKey(divisionID, characterName))
 	rt.leavePopulationSession(divisionID, characterName)
 	rt.forgetCriticalCharacter(divisionID, characterName)
 	var departedGID uint32
@@ -522,6 +524,11 @@ func (rt *Runtime) forgetCharacterLocked(divisionID, characterName string) {
 			}
 			c.NativeTeleportMode = 0
 			c.BerserkUntilMs = 0
+			// CGObjPC_ResetRuntimeState (4DE9ED, 4DEA23) zeroes the death
+			// kind (+0x1CB4) and the last EXP loss (+0x1CE0) with the actor: a
+			// relogged corpse takes the town rule and no earlier loss's refund.
+			changed = c.DeathKind != 0 || c.LastExpLoss != 0 || changed
+			c.DeathKind, c.LastExpLoss = 0, 0
 			changed = len(c.Aggressions) != 0 || changed
 			c.Aggressions = nil
 			changed = c.TransitionBodyStatus(domain.BodyStatusTransition{}) || changed

@@ -32,6 +32,7 @@ import (
 	"opensro.online/server/internal/data/store"
 	"opensro.online/server/internal/domain"
 	"opensro.online/server/internal/game/siege"
+	"opensro.online/server/internal/game/social/chatfeed"
 	"opensro.online/server/internal/game/world/simulation"
 	"opensro.online/server/internal/transport"
 	"opensro.online/server/internal/transport/worldsession"
@@ -85,79 +86,7 @@ func installPublicAPI(gameplay *gameplayPlane, hub *transport.Hub, authority *st
 		log.Infof("public api: disabled (%s=off)", publicstats.EnvAddr)
 		return api
 	}
-	bridge := worldsession.New(hub)
-	monsters := gameplay.deps.MonsterState
-	startedAt := time.Now()
-	service := publicstats.New(publicstats.Sources{
-		Characters: func() []*domain.Character {
-			var out []*domain.Character
-			authority.ReadCharacters(shard, func(characters []*domain.Character) {
-				out = make([]*domain.Character, 0, len(characters))
-				for _, c := range characters {
-					out = append(out, c.Snapshot())
-				}
-			})
-			return out
-		},
-		Kills:    func(afterSeq int64) ([]domain.UniqueKill, error) { return authority.UniqueKillsAfter(shard, afterSeq) },
-		KillPage: store.UniqueKillPage,
-		Uniques: func() []simulation.UniqueState {
-			if monsters == nil {
-				return nil
-			}
-			return monsters.UniqueStates(shard)
-		},
-		GuildOf: func(c *domain.Character) (string, string) {
-			if c.GuildID == nil {
-				return "", ""
-			}
-			guild, members, ok := authority.Guilds().Guild(shard, *c.GuildID)
-			if !ok {
-				return "", ""
-			}
-			rank := "member"
-			for _, member := range members {
-				if member.CharID == c.ID && member.Grade == 0 {
-					rank = "master"
-				}
-			}
-			return guild.Name, rank
-		},
-		ModelRef: gameplay.deps.CharacterModelRef,
-		Online: func(characterID int64) bool {
-			for _, view := range bridge.SnapshotSessionViews() {
-				if view.DivisionID == shard && view.CharacterID == characterID {
-					return true
-				}
-			}
-			return false
-		},
-		Rules: publicRules(),
-		Shard: "beta",
-		SetHidden: func(account, name string, hidden bool) error {
-			return setPublicHidden(authority, shard, account, name, hidden)
-		},
-		WriteToken: readPublicWriteToken(),
-		Sample: func() (int, transport.Metrics) {
-			online := 0
-			for _, view := range bridge.SnapshotSessionViews() {
-				if view.DivisionID == shard && view.CharacterID != 0 {
-					online++
-				}
-			}
-			return online, hub.Metrics()
-		},
-		StartedAt:            startedAt,
-		MasteryTotalOverride: int(gameplay.deps.MasteryTotalOverride),
-		ExpRequired: func(level int64) (int64, bool) {
-			levels := gameplay.deps.LevelData()
-			if levels == nil {
-				return 0, false
-			}
-			return levels.ExpRequired(level)
-		},
-		Schedule: func(now time.Time) []publicstats.ScheduledEvent { return publicSchedule(gameplay.siege, now) },
-	})
+	service := publicstats.New(publicSources(gameplay, hub, authority, shard))
 	if err := service.Start(addr); err != nil {
 		log.WithError(err).Warn("public api: listener not started; the community site reads its cache")
 		return api
@@ -203,13 +132,19 @@ func publicSchedule(lane *siege.Lane, now time.Time) []publicstats.ScheduledEven
 
 /*
 ================
-setPublicHidden
+setPrivacyFlag
 
-The privacy write. The owner check and the write share one store door, so
-a character deleted or transferred meanwhile is refused, not written.
+A privacy write (the profile's hidden flag, or its gear's). The owner
+check and the write share one store door, so a character deleted or
+transferred meanwhile is refused, not written.
 ================
 */
-func setPublicHidden(authority *store.Store, shard, account, name string, hidden bool) error {
+func setPrivacyFlag(
+	authority *store.Store,
+	shard, account, name, reason string,
+	hidden bool,
+	flag func(*domain.Character) *bool,
+) error {
 	var target *domain.Character
 	authority.ReadCharacters(shard, func(characters []*domain.Character) {
 		for _, c := range characters {
@@ -223,15 +158,15 @@ func setPublicHidden(authority *store.Store, shard, account, name string, hidden
 		return publicstats.ErrNotOwned
 	}
 	owned := false
-	authority.UpdateCharacter(target, "public-hidden", func() bool {
+	authority.UpdateCharacter(target, reason, func() bool {
 		if target.AccountID != account || target.DeletePending {
 			return false
 		}
 		owned = true
-		if target.PublicHidden == hidden {
+		if *flag(target) == hidden {
 			return false
 		}
-		target.PublicHidden = hidden
+		*flag(target) = hidden
 		return true
 	})
 	if !owned {
@@ -335,4 +270,126 @@ func (api *publicAPI) Close() error {
 		<-api.done
 	})
 	return err
+}
+
+/*
+================
+publicSources
+
+Everything the public API reads, wired to this GameWorld's authorities.
+A builder of its own so a test can hold each wiring (the unique names
+went unwired once, and every name printed as its codename).
+================
+*/
+func publicSources(gameplay *gameplayPlane, hub *transport.Hub, authority *store.Store, shard string) publicstats.Sources {
+	bridge := worldsession.New(hub)
+	monsters := gameplay.deps.MonsterState
+	startedAt := time.Now()
+	return publicstats.Sources{
+		Characters: func() []*domain.Character {
+			var out []*domain.Character
+			authority.ReadCharacters(shard, func(characters []*domain.Character) {
+				out = make([]*domain.Character, 0, len(characters))
+				for _, c := range characters {
+					out = append(out, c.Snapshot())
+				}
+			})
+			return out
+		},
+		Kills:    func(afterSeq int64) ([]domain.UniqueKill, error) { return authority.UniqueKillsAfter(shard, afterSeq) },
+		KillPage: store.UniqueKillPage,
+		Uniques: func() []simulation.UniqueState {
+			if monsters == nil {
+				return nil
+			}
+			return monsters.UniqueStates(shard)
+		},
+		UniqueName: uniqueNameSource(monsters),
+		GuildOf: func(c *domain.Character) (string, string) {
+			if c.GuildID == nil {
+				return "", ""
+			}
+			guild, members, ok := authority.Guilds().Guild(shard, *c.GuildID)
+			if !ok {
+				return "", ""
+			}
+			rank := "member"
+			for _, member := range members {
+				if member.CharID == c.ID && member.Grade == 0 {
+					rank = "master"
+				}
+			}
+			return guild.Name, rank
+		},
+		ModelRef: gameplay.deps.CharacterModelRef,
+		Online: func(characterID int64) bool {
+			for _, view := range bridge.SnapshotSessionViews() {
+				if view.DivisionID == shard && view.CharacterID == characterID {
+					return true
+				}
+			}
+			return false
+		},
+		Rules: publicRules(),
+		Shard: "beta",
+		SetHidden: func(account, name string, hidden bool) error {
+			return setPrivacyFlag(authority, shard, account, name, "public-hidden", hidden,
+				func(c *domain.Character) *bool { return &c.PublicHidden })
+		},
+		SetGearHidden: func(account, name string, hidden bool) error {
+			return setPrivacyFlag(authority, shard, account, name, "public-gear-hidden", hidden,
+				func(c *domain.Character) *bool { return &c.PublicGearHidden })
+		},
+		WriteToken: readPublicWriteToken(),
+		Sample: func() (int, transport.Metrics) {
+			online := 0
+			for _, view := range bridge.SnapshotSessionViews() {
+				if view.DivisionID == shard && view.CharacterID != 0 {
+					online++
+				}
+			}
+			return online, hub.Metrics()
+		},
+		StartedAt:            startedAt,
+		MasteryTotalOverride: int(gameplay.deps.MasteryTotalOverride),
+		ExpRequired: func(level int64) (int64, bool) {
+			levels := gameplay.deps.LevelData()
+			if levels == nil {
+				return 0, false
+			}
+			return levels.ExpRequired(level)
+		},
+		Schedule: func(now time.Time) []publicstats.ScheduledEvent { return publicSchedule(gameplay.siege, now) },
+		// A muted author's lines are left out while the mute holds. The
+		// session's record is read directly: restriction.Report would also
+		// send the muted player its notice on every poll.
+		Chat: func() []chatfeed.Line {
+			return gameplay.chatFeed.Lines(shard, func(name string) bool {
+				for _, session := range hub.CharacterSessions(shard, name) {
+					if _, muted := session.CommandRestriction(transport.CommandRestrictionChat); muted {
+						return true
+					}
+				}
+				return false
+			})
+		},
+	}
+}
+
+/*
+================
+uniqueNameSource
+
+Every unique name the API prints (the board, the kill feed, world-firsts)
+goes through this: the monster's retail display name. Unwired, each fell
+back to its codename (MOB_OA_URUCHI) on the site.
+================
+*/
+func uniqueNameSource(monsters *simulation.MonsterState) func(uint32) string {
+	return func(refObjID uint32) string {
+		if monsters == nil {
+			return ""
+		}
+		return monsters.MonsterName(refObjID)
+	}
 }

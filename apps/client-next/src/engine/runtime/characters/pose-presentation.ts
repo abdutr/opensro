@@ -38,7 +38,9 @@ const TICK_SECONDS = SIMULATION_STEP_MS / 1000;
 const DISCONTINUITY_DISTANCE = 192;
 // Samples further apart than this do not define a velocity.
 const MAX_SAMPLE_GAP_SECONDS = 0.25;
-// Bounded extrapolation: a stalled worker parks a walker, never runs it on.
+// Bounded extrapolation of a sample with no admitted leg: a stalled worker
+// parks such a walker, never runs it on. A sample that carries its admitted
+// walking leg instead keeps walking it to the leg's end (sampledLinearModel).
 const MAX_EXTRAPOLATION_SECONDS = 0.1;
 // Correction offsets decay with this time constant (about 95% gone in 0.2 s).
 const CORRECTION_FREQUENCY = 30;
@@ -93,6 +95,11 @@ A character drawn on the frame clock from its timed samples.
 ================
 */
 interface SampleTrack {
+	// The local mover's own leg (SampleInput.ownLeg, walksLeg).
+	ownLeg: boolean;
+	// A drawn pose handed back by its owner (carry): recovered toward the
+	// model at walking speed instead of in one frame.
+	carried?: boolean;
 	paths: { from: Pose; to: Pose; }[];
 	walkingPath?: readonly Pose[];
 	previous?: Sample;
@@ -207,6 +214,31 @@ function walkingLocation( pose: Pose, path: readonly Pose[], latest = false ) {
 		distance += length;
 	}
 	return best;
+}
+
+/*
+================
+nearestWalkingPose
+
+The certified path's point nearest a pose in the plane, its height from the
+accepted samples: the path's end for a pose that ran past it. Null only for
+a path that crosses into another navigation space.
+================
+*/
+function nearestWalkingPose( pose: Pose, path: readonly Pose[] ): Pose | null {
+	let best: { miss: number; pose: Pose; } | null = null;
+	for ( let i = 1; i < path.length; i++ ) {
+		const from = path[i - 1]!, to = path[i]!;
+		const span = worldVector( to, from ), point = worldVector( pose, from );
+		if ( !span || !point ) return null;
+		const planar2 = span[0] ** 2 + span[2] ** 2;
+		const fraction = planar2 ?
+			Math.max( 0, Math.min( 1, (point[0] * span[0] + point[2] * span[2]) / planar2 ) ) :
+			0;
+		const miss = hypot2( point[0] - span[0] * fraction, point[2] - span[2] * fraction );
+		if ( !best || miss < best.miss ) best = { miss, pose: interpolateMovement( from, to, fraction ) };
+	}
+	return best?.pose ?? null;
 }
 
 /*
@@ -381,7 +413,25 @@ within a leg this is exact; the leg end bounds it.
 function sampledModel( row: SampleTrack, now: number, confirmedAt = row.latest.at ): Pose {
 	const candidate = sampledLinearModel( row, now, confirmedAt );
 	if ( !row.walkingPath || candidate === row.latest.pose ) return candidate;
-	return walkingLocation( candidate, row.walkingPath, true )?.pose ?? row.latest.pose;
+	// A candidate off the certified chain (one that ran past its end) takes
+	// the chain's nearest point, never the stale sample: falling back to the
+	// latest sample drew a step back in X, Z and height.
+	return walkingLocation( candidate, row.walkingPath, true )?.pose ??
+		nearestWalkingPose( candidate, row.walkingPath ) ?? row.latest.pose;
+}
+
+/*
+================
+walksLeg
+
+Whether the track walks the local mover's own admitted ground leg: one
+with its end and its velocity, not a skill displacement (which keeps its
+own clock). A peer's leg is the server's, which a stop or a knockback can
+cut, so a peer keeps the bounded extrapolation.
+================
+*/
+function walksLeg( row: SampleTrack ): boolean {
+	return row.ownLeg && !!row.to && !!row.pathVelocity && row.displacementAtMs === undefined;
 }
 
 /*
@@ -390,13 +440,25 @@ sampledLinearModel
 
 Native time and the checked endpoint bound horizontal extrapolation. The
 wrapper resolves its height on certified walking samples when available.
+
+A walk on its admitted leg (a ground walk, not a skill displacement, which
+keeps its own clock) is advanced every frame, as native dead reckoning
+(CNavigationDeadreckon) advances it, and the leg's end bounds it. A worker
+or main-thread stall used to park it MAX_EXTRAPOLATION_SECONDS past the
+last sample, and the display then caught up at 1.5 times walking speed:
+under a 4x CPU throttle the bench drew 29 frames at 1.47 times speed after
+one stall (2026-10-12). Without a leg the bound stays.
 ================
 */
 function sampledLinearModel( row: SampleTrack, now: number, confirmedAt: number ): Pose {
 	const latest = row.latest, previous = row.previous;
-	const maximumAhead = MAX_EXTRAPOLATION_SECONDS + Math.max( 0, confirmedAt - latest.at );
+	const legged = walksLeg( row );
+	const maximumAhead = legged ? Infinity : MAX_EXTRAPOLATION_SECONDS + Math.max( 0, confirmedAt - latest.at );
 	if ( !row.moving ) return latest.pose;
-	if ( !previous && row.pathVelocity ) {
+	// Two samples further apart than MAX_SAMPLE_GAP_SECONDS define no
+	// velocity; the admitted leg still does.
+	const sampledGap = previous ? latest.at - previous.at : 0;
+	if ( row.pathVelocity && (!previous || legged && (sampledGap <= 0 || sampledGap > MAX_SAMPLE_GAP_SECONDS)) ) {
 		const [vx, vz] = row.pathVelocity, speed = hypot2( vx, vz );
 		if ( !speed ) return latest.pose;
 		let ahead = Math.min( maximumAhead, Math.max( 0, now - latest.at ) );
@@ -506,6 +568,7 @@ export function createPosePresentation() {
 				moving: input.moving,
 				to: input.to,
 				pathVelocity: pathVelocity( input ),
+				ownLeg: input.ownLeg === true,
 				recoverySpeed: 0,
 				durationMs: input.durationMs,
 				displacementAtMs: input.displacement ? input.startedAtMs : undefined,
@@ -581,7 +644,11 @@ export function createPosePresentation() {
 			// the preceding display creates a correction that never happened.
 			const retainedWalk = row.moving && input.moving && input.transition?.reason === "receipt" &&
 				input.transition.logicalDistance === 0 && input.transition.pathEligible === true;
-			const preserveDisplay = stalled || revisionChanged && input.transition?.reason !== "input" && !retainedWalk;
+			// A stalled frame of a walk on its admitted leg draws where the leg
+			// puts it now, as native dead reckoning does after a hitch; holding
+			// the frozen display made it sprint to catch up afterwards.
+			const preserveDisplay = stalled && !walksLeg( row ) ||
+				revisionChanged && input.transition?.reason !== "input" && !retainedWalk;
 			// A fresh publication after a main-frame gap confirms the intervening
 			// leg. Do not manufacture a parked interval inside that unseen gap.
 			// If an earlier displayed frame already reached the prediction bound,
@@ -625,6 +692,7 @@ export function createPosePresentation() {
 			row.durationMs = input.durationMs;
 			row.displacementAtMs = displacementAtMs;
 			row.pathVelocity = pathVelocity( input );
+			row.ownLeg = input.ownLeg === true;
 			// A stop may omit its leg, but outstanding display recovery still
 			// belongs to the speed of the admitted walk that reached it.
 			const walkSpeed = !input.displacement && row.pathVelocity ? hypot2( ...row.pathVelocity ) : 0;
@@ -722,6 +790,39 @@ export function createPosePresentation() {
 				const advanced = displace( row.displayed, [ delta[0] * fraction, 0, delta[2] * fraction ] );
 				drawn = { ...drawn, regionId: advanced.regionId, x: advanced.x, z: advanced.z };
 				row.offset = worldVector( drawn, model )!;
+			}
+		}
+		if ( row.carried ) {
+			// A carried pose (a released WAIT hold, carry) walks to the model at
+			// MAX_WALK_RECOVERY_SPEED_FACTOR times the walk's speed, height
+			// included. Released while standing (a correction or a receipt, no
+			// walk to pace it), it decays at CORRECTION_FREQUENCY as any
+			// correction does. A teleport-sized gap is not recovered.
+			const delta = worldVector( model, row.displayed );
+			const distance = delta ? hypot3( ...delta ) : 0;
+			// Only a walk paces it: a standing track keeps its last walk's
+			// recovery speed, which would glide a stop at walking pace.
+			const speed = row.moving ?
+				row.recoverySpeed || (row.pathVelocity ? hypot2( ...row.pathVelocity ) : 0) :
+				0;
+			if ( !delta || distance > MAX_CORRECTION_DISTANCE ) {
+				row.carried = undefined;
+			} else {
+				const elapsed = previousFrameAt === undefined ? 0 : Math.max( 0, now - previousFrameAt );
+				const fraction = distance <= MIN_CORRECTION_DISTANCE ?
+					1 :
+					speed ?
+					Math.min( 1, MAX_WALK_RECOVERY_SPEED_FACTOR * speed * elapsed / distance ) :
+					1 - Math.exp( -CORRECTION_FREQUENCY * Math.min( MAX_RECOVERY_STEP_SECONDS, elapsed ) );
+				drawn = {
+					...displace( row.displayed, [ delta[0] * fraction, delta[1] * fraction, delta[2] * fraction ] ),
+					angle: drawn.angle
+				};
+				row.offset = worldVector( drawn, model ) ?? [ 0, 0, 0 ];
+				if ( fraction >= 1 ) {
+					row.carried = undefined;
+					row.offset = [ 0, 0, 0 ];
+				}
 			}
 		}
 		// Retain the path behind a rebased receipt only while it still carries
@@ -828,6 +929,21 @@ export function createPosePresentation() {
 			row.displayed = { ...output };
 			if ( now - row.at >= row.duration && row.angle === target.angle ) row.settled = { ...output };
 			return output;
+		},
+		/*
+		================
+		carry
+
+		Hand a drawn pose back to the sampled track: its owner showed this pose
+		instead of the presented one (actor-motion's WAIT hold). The track then
+		recovers from it at walking speed rather than jumping to the model.
+		================
+		*/
+		carry( gid: number, displayed: Pose ) {
+			const track = tracks.get( gid );
+			if ( !track ) return;
+			track.displayed = { ...displayed };
+			track.carried = true;
 		},
 		/*
 		================

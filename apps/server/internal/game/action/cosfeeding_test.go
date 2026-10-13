@@ -45,12 +45,12 @@ func TestShippedPetFoodUsesAuthoredPercentAndNativeBoundary(t *testing.T) {
 		}
 		ownerHP, petHP := enterworld.CurrentHP(c), c.ActiveCOS.CurrentHP
 		result := rt.HandleItemUse(testDivision, c, request)
-		assertOpcodes(t, result.Frames, wire.OpItemUseResponse, wire.OpItemUseVisual, cosPetUpdateOpcode)
+		assertOpcodes(t, result.Frames, wire.OpItemUseResponse, opCommerceItemReferences, wire.OpItemUseVisual, cosPetUpdateOpcode)
 		want := uint16(min(companion.MaximumSatiety, int(initial)+int(percent)*100))
 		if result.Frames[0].Payload[0] != 1 || c.ActiveCOS.Satiety != want || c.MissionInventory[0].StackCount != 1 {
 			t.Fatalf("initial %d: pet %+v, frames %+v", initial, c.ActiveCOS, result.Frames)
 		}
-		payload := result.Frames[2].Payload // after the success and its visual
+		payload := result.Frames[3].Payload // after the success, the reference and the visual
 		if len(payload) != 7 || binary.LittleEndian.Uint32(payload) != c.ActiveCOS.GID || payload[4] != 4 || binary.LittleEndian.Uint16(payload[5:]) != want {
 			t.Fatalf("satiety wire = %x", payload)
 		}
@@ -58,6 +58,10 @@ func TestShippedPetFoodUsesAuthoredPercentAndNativeBoundary(t *testing.T) {
 			// Only the item's own visual is public (510980 sends 0x305C for every use).
 			len(result.Broadcast) != 2 || result.Broadcast[1].Opcode != wire.OpItemUseVisual {
 			t.Fatal("feeding changed vitals, reuse timers or public state")
+		}
+		// 49D6E7: the HGP potion's sparkle plays on the pet it fed.
+		if gid := binary.LittleEndian.Uint32(result.Broadcast[1].Payload); gid != c.ActiveCOS.GID {
+			t.Fatalf("pet food sparkle on %d, want pet %d", gid, c.ActiveCOS.GID)
 		}
 	}
 }

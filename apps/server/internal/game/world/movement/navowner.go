@@ -344,6 +344,42 @@ func (w *navWalk) pathForMesh(mesh *objectNavMesh, anchorX, anchorZ float64, ord
 	return nil
 }
 
+// ownsAnyMesh reports whether the walk owns one of this placement's meshes
+// (pathForMesh for each): the reach skip never passes over a mesh the walk
+// already stands on.
+/*
+================
+ownsAnyMesh
+================
+*/
+func (w *navWalk) ownsAnyMesh(entry *resolvedObjectNav, anchorX, anchorZ float64) bool {
+	for _, mesh := range entry.meshes {
+		if w.pathForMesh(mesh, anchorX, anchorZ, entry.placement.ordinal) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// ownsInSet reports whether the walk owns a mesh of the object set at
+// (surface, dx, dz): such a set is scanned whatever its reach says.
+/*
+================
+ownsInSet
+================
+*/
+func (w *navWalk) ownsInSet(surface *groundSurface, dx, dz int) bool {
+	if w == nil {
+		return false
+	}
+	for _, path := range w.paths {
+		if s := path.stand; s.surface == surface && s.setDX == dx && s.setDZ == dz {
+			return true
+		}
+	}
+	return false
+}
+
 // spans flattens the walk into full [0,1] coverage for world state.
 /*
 ================
@@ -461,13 +497,8 @@ terrainOutlineEntry
 */
 func (v *WaterValidator) terrainOutlineEntry(ax, az, bx, bz, tMin float64) (*objectDeckStand, float64, float64) {
 	const eps = 1e-9
-	start := globalTile{x: int(math.Floor(ax / simulation.NativeRegionSize)), z: int(math.Floor(az / simulation.NativeRegionSize))}
-	end := globalTile{x: int(math.Floor(bx / simulation.NativeRegionSize)), z: int(math.Floor(bz / simulation.NativeRegionSize))}
-	sectors := map[globalTile]struct{}{start: {}, end: {}}
-	v.walkChord(ax, az, bx, bz, simulation.NativeRegionSize, start, end, func(sector globalTile, _ float64) bool {
-		sectors[sector] = struct{}{}
-		return false
-	})
+	var sectorBuf [8]globalTile
+	sectors := v.chordSectors(sectorBuf[:], ax, az, bx, bz)
 	// A few sets per crossed sector: a scan of a stack array, not a map
 	// that allocated its buckets on every chord.
 	var checkedBuf [32]objectNavSetKey
@@ -485,9 +516,17 @@ func (v *WaterValidator) terrainOutlineEntry(ax, az, bx, bz, tMin float64) (*obj
 			return
 		}
 		checked = append(checked, key)
-		set := v.objectNavSetForOffset(surface, dx, dz)
+		set, setReach := v.objectNavSetReach(surface, dx, dz)
 		baseX, baseZ := float64(anchorX)*simulation.NativeRegionSize, float64(anchorZ)*simulation.NativeRegionSize
+		if setReach.missedBy(ax-baseX, az-baseZ, bx-baseX, bz-baseZ) {
+			return
+		}
 		for i := range set {
+			// A chord that misses everything this placement holds can neither
+			// visit nor cross it (objectnav_reach.go).
+			if set[i].reach.missedBy(ax-baseX, az-baseZ, bx-baseX, bz-baseZ) {
+				continue
+			}
 			// Native visit order (404510): the placement is stepped once the
 			// walker stands in one of its registered terrain cells.
 			visit := math.Max(tMin, terrainVisitKey(set[i].placement.terrainCells, ax-baseX, az-baseZ, bx-baseX, bz-baseZ))
@@ -540,7 +579,7 @@ func (v *WaterValidator) terrainOutlineEntry(ax, az, bx, bz, tMin float64) (*obj
 			}
 		}
 	}
-	for sector := range sectors {
+	for _, sector := range sectors {
 		if sector.x < 0 || sector.z < 0 || sector.x > 0xff || sector.z > 0xff {
 			continue
 		}

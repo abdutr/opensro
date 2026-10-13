@@ -16,6 +16,7 @@ import (
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/social/chat"
+	"opensro.online/server/internal/game/social/chatfeed"
 )
 
 /*
@@ -70,18 +71,28 @@ func TestGlobalChattingSendsTheLineToTheWholeShard(t *testing.T) {
 	var shard []wire.Frame
 	var except string
 	rt.PushShardPeerFrames = func(_, name string, frames []wire.Frame) { except, shard = name, frames }
+	rt.PublicChat = chatfeed.New()
 	result := rt.HandleItemUse(testDivision, c, globalChatRequest(ref, "Hello, Silk Road"))
 	// 510980: the success and the item visual, then the shard's relayed line.
-	assertOpcodes(t, result.Frames, wire.OpItemUseResponse, wire.OpItemUseVisual, chat.OpChatBroadcast)
+	assertOpcodes(t, result.Frames, wire.OpItemUseResponse, opCommerceItemReferences, wire.OpItemUseVisual, chat.OpChatBroadcast)
 	want := chat.EncodeChatBroadcastNamed(chat.ChatTypeGlobal, c.Name, "Hello, Silk Road")
-	if !bytes.Equal(result.Frames[2].Payload, want) {
-		t.Fatalf("author line %x, want %x", result.Frames[2].Payload, want)
+	if !bytes.Equal(result.Frames[3].Payload, want) {
+		t.Fatalf("author line %x, want %x", result.Frames[3].Payload, want)
 	}
 	if except != c.Name || len(shard) != 1 || shard[0].Opcode != chat.OpChatBroadcast || !bytes.Equal(shard[0].Payload, want) {
 		t.Fatalf("shard push to all but %q: %+v", except, shard)
 	}
 	if c.MissionInventory[len(c.MissionInventory)-1].StackCount != 2 {
 		t.Fatal("the item was not spent")
+	}
+	// The website feed carries the paid line as its own kind (port-only).
+	if lines := rt.PublicChat.Lines(testDivision, nil); len(lines) != 1 || lines[0].Kind != chatfeed.KindGlobal ||
+		lines[0].Character != c.Name || lines[0].Text != "Hello, Silk Road" {
+		t.Fatalf("feed %+v", lines)
+	}
+	rt.PlayerBannedGM(testDivision, c.Name)
+	if lines := rt.PublicChat.Lines(testDivision, nil); len(lines) != 0 {
+		t.Fatalf("feed after ban %+v", lines)
 	}
 }
 
@@ -97,6 +108,7 @@ func TestGlobalChattingRefusesARestrictedOrMalformedLine(t *testing.T) {
 	rt, c, ref := globalChatFixture(t)
 	pushed := false
 	rt.PushShardPeerFrames = func(string, string, []wire.Frame) { pushed = true }
+	rt.PublicChat = chatfeed.New()
 	rt.ChatRestricted = func(string, string) bool { return true }
 	result := rt.HandleItemUse(testDivision, c, globalChatRequest(ref, "muted"))
 	if len(result.Frames) != 1 || !bytes.Equal(result.Frames[0].Payload, wire.EncodeItemUseError(2)) {
@@ -114,7 +126,7 @@ func TestGlobalChattingRefusesARestrictedOrMalformedLine(t *testing.T) {
 	} {
 		rt.HandleItemUse(testDivision, c, payload)
 	}
-	if pushed || c.MissionInventory[len(c.MissionInventory)-1].StackCount != 3 {
-		t.Fatal("a refused line was sent or spent the item")
+	if pushed || c.MissionInventory[len(c.MissionInventory)-1].StackCount != 3 || len(rt.PublicChat.Lines(testDivision, nil)) != 0 {
+		t.Fatal("a refused line was sent, spent the item or reached the website feed")
 	}
 }

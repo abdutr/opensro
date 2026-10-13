@@ -85,6 +85,29 @@ func (rt *Runtime) applyCosItemUse(
 
 /*
 ================
+petItemVisualTarget
+
+The object a pet item's sparkle plays on. CGObjPC_HandleUseItem (510980)
+sends 0x305C with the gid the item's handler leaves in its out argument,
+the user's by default. 49D240 writes the pet's gid there for the potions
+(TID4 4/5/7: the gid read at 49D44D, written at 49D50F from pet+8) and for
+the HGP potion (TID4 9: the gid read at 49D6E7); the revival scroll (6) and
+the pet cure write nothing, so they sparkle on the owner. 0 keeps the user.
+================
+*/
+func petItemVisualTarget(family itemUseFamily, tail []byte) uint32 {
+	if family != itemUsePetPotion && family != itemUsePetFeed {
+		return 0
+	}
+	gid, ok := readCosGID(tail)
+	if !ok {
+		return 0
+	}
+	return gid
+}
+
+/*
+================
 livePet
 ================
 */
@@ -243,7 +266,7 @@ func (rt *Runtime) applyPetPotion(
 	}
 	// 49AA70 reads the item owner's STR/INT/level (PC vfuncs), then
 	// 4A86A0 applies the COS recovery reductions and effective maxima.
-	maxHP, maxMP, _, _ := rt.playerKeeperVitals(divisionID, character)
+	maxHP, maxMP, _, _ := keeperVitalsFrom(character, stats, nil)
 	amount, valid := computePotionAmount(ref, stats.Level, stats.Strength, stats.Intellect, maxHP, maxMP)
 	if !valid {
 		return false

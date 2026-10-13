@@ -352,6 +352,7 @@ the entry continues it like the one after a world transfer.
 		notice: gameplay.notice,
 		chatBlocks: gameplay.chatBlocks,
 		options: gameplay.options,
+		experimental: gameplay.experimental,
 		/*
 ================
 command
@@ -466,6 +467,8 @@ Advances entities and gameplay, then publishes the changed gameplay state.
 				publishedSocial = social;
 			}
 		},
+		// The owners' skipped cosmetic steps, for the world's degraded reports.
+		takeDegradations: () => entities.takeDegradations(),
 		readyRevision: () => pendingTravel?.revision ?? 0,
 		/*
 ================
@@ -478,6 +481,7 @@ Retail 0x72902a restores destination mode after the loading UI retires.
 			pendingTravel = null;
 			loadingMode = 2;
 			gameplay.enterMusic();
+			gameplay.worldReady();
 		},
 		/*
 ================

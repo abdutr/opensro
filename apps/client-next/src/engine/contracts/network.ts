@@ -21,6 +21,13 @@ export const NET_JOURNAL_IN = 0;
 export const NET_JOURNAL_OUT = 1;
 // A gap: frames the journal dropped (bytes = how many), timed at the last.
 export const NET_JOURNAL_GAP = 2;
+// A fatal incident carries the frames before it (NetworkOwner.recentJournal):
+// no failure that ends a session should arrive without its evidence. The
+// Agent bounds the same rows (client_incident.go maxIncidentJournalRows).
+export const INCIDENT_JOURNAL_ROWS = 200;
+// Older rows are not evidence of this failure (maxIncidentJournalAge); the
+// Agent refuses a report that carries one, so they are left out here.
+export const INCIDENT_JOURNAL_AGE_MS = 600000; // ten minutes
 /*
 ================
 NetworkOwner
@@ -37,6 +44,9 @@ export interface NetworkOwner {
 	// Frames journaled since the last take (epoch ms, direction, opcode,
 	// bytes per frame), or null; the bug report's network.json.
 	takeJournal(): Float64Array | null;
+	// The last INCIDENT_JOURNAL_ROWS frames whatever takeJournal drained, as
+	// flattened rows: ms before now (<= 0, whole), direction, opcode, bytes.
+	recentJournal(): number[];
 	dispose(): void;
 }
 /*
@@ -52,9 +62,10 @@ export interface ClientIncident {
 	readonly id?: string;
 	readonly session?: string;
 	readonly code?: string;
-	readonly category?: NetworkFailure["category"];
+	readonly category?: NetworkFailure["category"] | "degraded";
 	readonly stack?: string;
-	readonly kind: "packet" | "transport" | "runtime" | "asset" | "unsupported";
+	// "degraded" alone is non-fatal: a cosmetic step was skipped (Degradation).
+	readonly kind: "packet" | "transport" | "runtime" | "asset" | "unsupported" | "degraded";
 	readonly message: string;
 	readonly opcode?: number;
 	readonly payload?: string;
@@ -63,6 +74,8 @@ export interface ClientIncident {
 	readonly character?: string;
 	readonly region?: number;
 	readonly build?: string;
+	// The frames before the failure (NetworkOwner.recentJournal), never payloads.
+	readonly journal?: readonly number[];
 }
 
 /*
@@ -76,6 +89,26 @@ export interface NetworkFailure {
 	readonly code: string;
 	readonly message: string;
 }
+/*
+================
+Degradation
+
+A cosmetic step the client skipped instead of ending the session: an effect
+whose item it cannot resolve, a visual with nothing to draw. Only a frame
+whose rest still parses may degrade; one that leaves the stream unreadable
+stays fatal. code names the site, stable across builds, so the console
+groups by it and an agent finds the code from it (apps/client-next
+AGENTS.md "Degraded reports").
+================
+*/
+export interface Degradation {
+	readonly code: string;
+	readonly message: string;
+	readonly frame?: WireFrame;
+}
+// One diagnostic session reports each degraded code once, and at most this
+// many codes: a bad item or effect cannot flood the Agent.
+export const DEGRADED_CODES_PER_SESSION = 16;
 // The Agent's bound on the dumped frame bytes (client_incident.go).
 export const INCIDENT_DUMP_BYTES = 512;
 // The Agent's bound on the message length.
@@ -84,3 +117,11 @@ export const INCIDENT_MESSAGE_LENGTH = 500;
 // A missing movement receipt invalidates prediction; the session must resume
 // through fresh server state without replaying the unacknowledged command.
 export const MOVEMENT_RECEIPT_TIMEOUT = "movement_receipt_timeout";
+// An unanswered inventory transaction is the same loss on the item lane: the
+// transport keeps no frame already written to a dying socket (server
+// transport doc.go), so the request or its answer is gone. Native replies
+// carry no transaction ID; the session resumes through fresh server state.
+export const INVENTORY_TRANSACTION_TIMEOUT = "inventory_transaction_timeout";
+// The target lane's release (B4B3) carries no identity either: an unanswered
+// one is the same loss, resumed the same way.
+export const TARGET_RELEASE_TIMEOUT = "target_release_timeout";

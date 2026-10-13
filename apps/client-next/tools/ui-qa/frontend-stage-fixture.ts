@@ -14,6 +14,7 @@ import type { AssetOwner } from "../../src/engine/contracts/assets";
 import type { Renderer } from "../../src/engine/contracts/runtime";
 import type { UiEvent } from "../../src/engine/contracts/ui";
 import type { RecipeContext } from "./extended";
+import type { FrontendFixtureState } from "./fixture-state";
 
 /*
 ================
@@ -23,7 +24,7 @@ createStageFixture
 export function createStageFixture(
 	assets: AssetOwner,
 	renderer: Renderer,
-	state: RecipeContext["state"],
+	state: FrontendFixtureState,
 	record: ( kind: string, detail: unknown ) => void
 ) {
 	let owner: ReturnType<typeof createFrontend> | null = null;
@@ -83,6 +84,8 @@ export function createStageFixture(
 		================
 		*/
 		async openWorldActor( context: Pick<RecipeContext, "step" | "advance"> ) {
+			if ( !state.gameplay ) throw Error( "Actor recipe requires a world snapshot" );
+			const game = state.gameplay;
 			characters?.dispose();
 			characters = createCharacterPresentation(
 				assets,
@@ -103,8 +106,8 @@ export function createStageFixture(
 				near: 1,
 				far: 500000
 			} );
-			state.entities = state.entities.map( ( row: any ) =>
-				row.gid === state.gameplay.localGid ?
+			state.entities = state.entities.map( ( row ) =>
+				row.gid === game.localGid ?
 					{ ...row, refObjId: 1907, bodyShape: 0x22, equipment: [], appearanceState: [ 0, 0, 0 ] } :
 					row
 			);
@@ -199,9 +202,10 @@ export function createStageFixture(
 		================
 		*/
 		step( now: number ) {
-			if ( worldActor && characters ) {
+			if ( worldActor && characters && state.gameplay ) {
+				const game = state.gameplay;
 				characters.step(
-					state.entities.filter( ( row: any ) => row.gid === state.gameplay.localGid ),
+					state.entities.filter( ( row ) => row.gid === game.localGid ),
 					state.gameplay,
 					now / 1000,
 					now
@@ -210,7 +214,7 @@ export function createStageFixture(
 			}
 			if ( !owner || !characters ) return;
 			state.frontend = owner.step( state.session, now, characters.dockReady(), characters.previewReady() );
-			const front = state.frontend;
+			const front = owner.snapshot();
 			const preview = [ "loading-create", "customize", "create-exit" ].includes( front.phase );
 			const dock = [
 				"loading-dock",

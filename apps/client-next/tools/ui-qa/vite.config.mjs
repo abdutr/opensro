@@ -9,6 +9,7 @@ import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import { publishedAssets } from "../published-assets.mjs";
 import { clientBuildDefinitions } from "../build-metadata.mjs";
+import { UI_QA_PORT, UI_QA_CATALOG_PATH } from "./settings.mjs";
 import { readCatalog } from "./catalog.mjs";
 
 /*
@@ -33,7 +34,7 @@ function reviewServer() {
 					response.writeHead( 403 );
 					return response.end( "No game connection in UI review" );
 				}
-				if ( request.url !== "/__uiqa/catalog" ) return next();
+				if ( request.url !== UI_QA_CATALOG_PATH ) return next();
 				if ( request.method !== "GET" ) {
 					response.writeHead( 405 );
 					return response.end();
@@ -56,7 +57,7 @@ export default defineConfig( ( { command } ) => {
 		root: fileURLToPath( new URL( "../../", import.meta.url ) ),
 		publicDir: false,
 		define: clientBuildDefinitions(),
-		server: { host: "127.0.0.1", port: 5190, strictPort: true },
+		server: { host: "127.0.0.1", port: UI_QA_PORT, strictPort: true },
 		plugins: [ reviewServer(), publishedAssets() ],
 		resolve: { alias: { "@": fileURLToPath( new URL( "../../src", import.meta.url ) ) } }
 	};

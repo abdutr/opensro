@@ -12,6 +12,9 @@ import { uiPanels } from "../../src/engine/foundation/ui/panels";
 import { SERVICE_WINDOWS } from "../../tests/helpers/ui-entry-recipes.mjs";
 import { extendedJourneys } from "./extended";
 
+import type { FixtureState } from "./fixture-state";
+import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
+
 export const SCENARIO_VERSION = 2;
 
 export interface Journey {
@@ -289,9 +292,10 @@ The production UiView boundary is cast once in frame.ts: these intentionally
 bounded snapshots do not pretend to construct a complete gameplay session.
 ================
 */
-export function seedJourney( id: string ) {
+export function seedJourney( id: string ): FixtureState {
 	const player = {
 		gid: 1,
+		refObjId: 0,
 		regionId: 0x6a48,
 		x: 1000,
 		y: 0,
@@ -330,12 +334,18 @@ export function seedJourney( id: string ) {
 		frontend: { phase: "world" },
 		session: { phase: "world", revision: 1, character: "Reviewer" },
 		gameplay: {
+			revision: 1,
 			localGid: 1,
 			pose: { ...player, angle: 0 },
+			authoritativePose: null,
+			pendingMoves: 0,
+			acknowledgedMove: 0,
+			targetPending: 0,
+			error: null,
 			target: id.startsWith( "hud-" ) ? 8 : id === "guild-transfer" ? 99 : 0,
 			targetCapabilities: id === "guild-transfer" ? 0x4000 : 0,
 			npcConversation: id === "guild-transfer" ?
-				{ phase: "menu", gid: 99, dialogueRevision: 0 } :
+				{ phase: "menu", gid: npcGid( 99 ), dialogueRevision: 0 } :
 				{ phase: "closed" },
 			inventorySlotCount: 45,
 			equipmentSlotCount: 13,
@@ -349,6 +359,8 @@ export function seedJourney( id: string ) {
 			social: id === "guild-empty" ? emptySocial( "Reviewer" ) : guildSnapshot(),
 			stall,
 			chat: {
+				pending: false,
+				error: null,
 				lines: Array.from(
 					{ length: 18 },
 					( _, i ) => ({

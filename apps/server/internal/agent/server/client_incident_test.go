@@ -9,7 +9,12 @@ package agentserver
 
 import (
 	"net/http"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+
+	"opensro.online/server/internal/platform/history"
 
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
@@ -64,6 +69,94 @@ func TestClientIncidentIsLoggedWithTheFailingFrame(t *testing.T) {
 	for key, value := range want {
 		if entry.Data[key] != value {
 			t.Errorf("%s = %v, want %v", key, entry.Data[key], value)
+		}
+	}
+}
+
+/*
+================
+TestClientIncidentCarriesItsFrameJournal
+
+A fatal report brings the frames before the failure (B1, "Unmatched COS
+transfer result", had no other evidence): the log line a reader scans and
+the history event both carry them, payloads never.
+================
+*/
+func TestClientIncidentCarriesItsFrameJournal(t *testing.T) {
+	fixture, token := incidentSession(t)
+	hook := logtest.NewGlobal()
+	defer hook.Reset()
+
+	body := `{"kind":"packet","message":"Packet application failed: Error: Unmatched COS transfer result",` +
+		`"opcode":45165,"payload":"011a270040020013","payloadSize":8,"phase":"world",` +
+		`"journal":[-2048,2,0,12,-1520,1,28781,7,-1448,0,45165,8,0,0,45165,8]}`
+	response := performJSON(t, fixture.handler, http.MethodPost, clientIncidentPath, body, token)
+	if response.Code != http.StatusOK {
+		t.Fatalf("incident = %d %s", response.Code, response.Body.String())
+	}
+	entry := hook.LastEntry()
+	want := "-2048:g:0000:12 -1520:o:706D:7 -1448:i:B06D:8 0:i:B06D:8"
+	if entry == nil || entry.Data["journal"] != want {
+		t.Fatalf("journal = %v, want %q", entry, want)
+	}
+}
+
+/*
+================
+TestClientIncidentKeepsItsReportWhenTheJournalIsMalformed
+
+A journal is whole rows of a time at or before the failure, a known
+direction, an opcode and a size. A bad one is dropped and named; the
+incident it came with is still recorded (#788: a strict check on a new
+client field must not discard the evidence it exists to collect).
+================
+*/
+func TestClientIncidentKeepsItsReportWhenTheJournalIsMalformed(t *testing.T) {
+	for journal, reason := range map[string]string{
+		`[-1,0,1]`:        "partial row",
+		`[5,0,1,1]`:       "row 0: age 5",
+		`[-1,3,1,1]`:      "row 0: direction 3",
+		`[-1,0,65536,1]`:  "row 0: opcode 65536",
+		`[-1.5,0,1,1]`:    "row 0: age -1.5",
+		`[-600001,0,1,1]`: "row 0: age -600001",
+	} {
+		fixture, token := incidentSession(t)
+		hook := logtest.NewGlobal()
+		body := `{"kind":"packet","message":"x","journal":` + journal + `}`
+		if code := performJSON(t, fixture.handler, http.MethodPost, clientIncidentPath, body, token).Code; code != http.StatusOK {
+			t.Errorf("%s = %d, want the incident kept", journal, code)
+		}
+		entry := hook.LastEntry()
+		if entry == nil || entry.Message != "agent: client incident" || entry.Data["journalInvalid"] != reason || entry.Data["journal"] != nil {
+			t.Errorf("%s: logged %+v, want journalInvalid %q and no journal", journal, entry, reason)
+		}
+		hook.Reset()
+	}
+}
+
+/*
+================
+TestClientIncidentRefusalIsLoggedWithItsReason
+
+A refused report is evidence lost: the Agent names why instead of
+dropping it silently.
+================
+*/
+func TestClientIncidentRefusalIsLoggedWithItsReason(t *testing.T) {
+	fixture, token := incidentSession(t)
+	hook := logtest.NewGlobal()
+	defer hook.Reset()
+	for body, reason := range map[string]string{
+		`{"kind":"other","message":"x"}`:            "unknown kind or bad message",
+		`{"kind":"packet","message":"x","extra":1}`: "malformed body: ",
+	} {
+		if code := performJSON(t, fixture.handler, http.MethodPost, clientIncidentPath, body, token).Code; code != http.StatusBadRequest {
+			t.Fatalf("%s = %d", body, code)
+		}
+		entry := hook.LastEntry()
+		got, _ := entry.Data["reason"].(string)
+		if entry == nil || entry.Message != "agent: client incident refused" || !strings.HasPrefix(got, reason) {
+			t.Errorf("%s: logged %+v, want reason %q", body, entry, reason)
 		}
 	}
 }
@@ -169,5 +262,86 @@ func TestClientIncidentRefusesADeletedAccountsSession(t *testing.T) {
 		if entry.Message == "agent: client incident" {
 			t.Fatalf("a deleted account's report was logged: %+v", entry.Data)
 		}
+	}
+}
+
+/*
+================
+TestClientDegradedReportIsKeptLoggedAndGrouped
+
+A non-fatal "degraded" report (the client skipped a cosmetic step) is kept,
+logged as "agent: client degraded" with its site code (never the account),
+and recorded in the degraded category the console groups by code. It must
+name its site; a fatal kind cannot claim the category.
+================
+*/
+func TestClientDegradedReportIsKeptLoggedAndGrouped(t *testing.T) {
+	journal, err := history.Open(filepath.Join(t.TempDir(), "history.sqlite"), "agent", "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = journal.Close() })
+	fixture, token := incidentSession(t, func(config *Config) { config.History = journal })
+	hook := logtest.NewGlobal()
+	defer hook.Reset()
+
+	body := `{"kind":"degraded","category":"degraded","code":"item-use-visual-unknown-ref",` +
+		`"message":"Missing external item reference 3787","opcode":13385,"payload":"cb860100cb0e0000","payloadSize":8}`
+	if code := performJSON(t, fixture.handler, http.MethodPost, clientIncidentPath, body, token).Code; code != http.StatusOK {
+		t.Fatalf("degraded report = %d", code)
+	}
+	entry := hook.LastEntry()
+	if entry == nil || entry.Message != "agent: client degraded" || entry.Data["code"] != "item-use-visual-unknown-ref" {
+		t.Fatalf("logged %+v", entry)
+	}
+	if _, named := entry.Data["account"]; named {
+		t.Fatalf("degraded line names the account: %+v", entry.Data)
+	}
+	data, err := journal.Query(history.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := data["degraded"].([]map[string]any)
+	if len(groups) != 1 || groups[0]["code"] != "item-use-visual-unknown-ref" || groups[0]["count"] != int64(1) {
+		t.Fatalf("degraded groups = %+v", groups)
+	}
+	example := groups[0]["example"].(map[string]any)
+	if example["opcode"] != "0x3449" || example["payload"] != "cb860100cb0e0000" {
+		t.Fatalf("example = %+v", example)
+	}
+	for body, reason := range map[string]string{
+		`{"kind":"degraded","message":"x"}`:                                "degraded report without a code",
+		`{"kind":"packet","category":"degraded","message":"x","code":"y"}`: "degraded category on a fatal report",
+	} {
+		if code := performJSON(t, fixture.handler, http.MethodPost, clientIncidentPath, body, token).Code; code != http.StatusBadRequest {
+			t.Errorf("%s = %d", body, code)
+		}
+		if got, _ := hook.LastEntry().Data["reason"].(string); got != reason {
+			t.Errorf("%s refused for %q, want %q", body, got, reason)
+		}
+	}
+}
+
+/*
+================
+TestClientDegradedReportsNeverStarveAFatalOne
+
+Degraded reports draw on their own allowance: once they use it up, the
+account's session-ending failure is still accepted.
+================
+*/
+func TestClientDegradedReportsNeverStarveAFatalOne(t *testing.T) {
+	fixture, token := incidentSession(t)
+	limited := false
+	for i := 0; i < 40 && !limited; i++ {
+		body := `{"kind":"degraded","code":"site-` + strconv.Itoa(i) + `","message":"x"}`
+		limited = performJSON(t, fixture.handler, http.MethodPost, clientIncidentPath, body, token).Code == http.StatusTooManyRequests
+	}
+	if !limited {
+		t.Fatal("degraded reports were never paced")
+	}
+	fatal := `{"kind":"packet","message":"Packet application failed: Error: x"}`
+	if code := performJSON(t, fixture.handler, http.MethodPost, clientIncidentPath, fatal, token).Code; code != http.StatusOK {
+		t.Fatalf("a fatal report after the degraded allowance ran out = %d, want accepted", code)
 	}
 }

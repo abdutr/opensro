@@ -7,7 +7,7 @@ unsupported integration; no server action or permission grant is simulated.
 ===========================================================================
 */
 import type { ExtendedRecipe, RecipeContext } from "./extended";
-import { npc, openPanel, press } from "./recipe-input";
+import { fixtureGuild, guildMember, npc, openPanel, press } from "./recipe-input";
 
 /*
 ================
@@ -18,18 +18,34 @@ async function academy( context: RecipeContext, master: boolean ) {
 	context.state.gameplay.academy = {
 		member: true,
 		localMemberId: master ? 7 : 8,
-		members: [ { id: 7, kind: 0, name: "Reviewer", level: 80, entryLevel: 80 }, {
+		members: [ {
+			id: 7,
+			kind: 0,
+			name: "Reviewer",
+			level: 80,
+			entryLevel: 80,
+			model: 1907,
+			offline: false,
+			honor: 0,
+			location: "Jangan"
+		}, {
 			id: 8,
 			kind: 1,
 			name: "Apprentice",
 			level: 25,
-			entryLevel: 1
+			entryLevel: 1,
+			model: 1907,
+			offline: false,
+			honor: 0,
+			location: "Jangan"
 		} ],
 		subject: "Academy review",
 		contents: "Synthetic populated notice for layout review.",
 		request: null,
 		rows: [],
-		page: 0
+		page: 0,
+		pages: 0,
+		result: null
 	};
 	await openPanel( context, "Academy" );
 	const notice = context.controls().find( row => row.id === "academy-notice" );
@@ -73,7 +89,7 @@ export const socialRecipes: readonly ExtendedRecipe[] = [
 		async open( context: RecipeContext ) {
 			npc( context, 0x400000, "Fortress manager" );
 			const game = context.state.gameplay;
-			game.social.guild.members[0].role = 1;
+			guildMember( context ).role = 1;
 			game.fortress = {
 				worldId: 7,
 				worlds: [ { id: 7, code: "FORTRESS_JANGAN" } ],
@@ -83,7 +99,7 @@ export const socialRecipes: readonly ExtendedRecipe[] = [
 					nameStrId: "SN_FORTRESS_JANGAN",
 					officialRefObjId: 2011
 				} ],
-				wars: [ { id: 1, name: game.social.guild.name, flags: 1 } ],
+				wars: [ { id: 1, name: fixtureGuild( context ).name, flags: 1 } ],
 				registered: [],
 				listId: 1,
 				staffFlags: 0

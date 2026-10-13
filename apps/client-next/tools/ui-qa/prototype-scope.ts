@@ -32,12 +32,7 @@ export const prototypeScope = {
 		"Access each inventoried implemented UI layout and its essential local controls for human review. A mount is not a native-correctness claim.",
 	A: {
 		meaning: "Unique implemented visual surfaces still inaccessible",
-		remaining: [ {
-			id: "breadth:specialty-buy",
-			blocker:
-				"Production Shop and COS frames both publish close. Assertions remain enabled; no product fix is included.",
-			source: "runtime/ui/ui.ts nativeFrame, Shop and COS inventory branches"
-		} ],
+		remaining: [] as { id: string; blocker: string; source: string; }[],
 		panels: uiPanels().map( name => ({
 			name,
 			entry: "surface:" + name,

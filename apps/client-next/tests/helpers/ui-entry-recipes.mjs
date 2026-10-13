@@ -9,6 +9,7 @@ logic or service transport lives here. Async steps allow real assets to settle.
 const { emptyStall, stallRequest } = await import( "../../src/engine/foundation/gameplay/stall.ts" );
 const { fortressPacket } = await import( "../../src/engine/foundation/gameplay/fortress.ts" );
 const { fortressProductionQuery } = await import( "../../src/engine/foundation/gameplay/fortress-production.ts" );
+const { npcGid } = await import( "../../src/engine/foundation/gameplay/npc-dialogue.ts" );
 const { createMagicOptionGrant } = await import(
 	"../../src/engine/runtime/simulation/worker/session/world/gameplay/inventory/magic-option/magic-option.ts"
 );
@@ -18,7 +19,7 @@ const OFFICIAL = 17;
 const GLOBAL_CHAT_TYPE = 0x29ec;
 const BAG_SLOT = 13;
 
-/** @typedef {{ state: any, ui: { event: ( event: any ) => void } }} Fixture */
+/** @typedef {import("./ui-entry-recipes.mjs").EntryFixture} Fixture */
 
 /*
 ================
@@ -31,7 +32,10 @@ service window is requested from.
 /** @param {Fixture} f */
 function talkTo( f ) {
 	f.state.entities.push( { ...f.state.entities[0], gid: OFFICIAL, refObjId: 2011, kind: "npc", name: "Official" } );
-	Object.assign( f.state.gameplay, { target: OFFICIAL, npcConversation: { phase: "menu", gid: OFFICIAL } } );
+	Object.assign( f.state.gameplay, {
+		target: OFFICIAL,
+		npcConversation: { phase: "menu", gid: npcGid( OFFICIAL ), dialogueRevision: 0 }
+	} );
 }
 
 /*
@@ -88,7 +92,7 @@ export const OPENERS = {
 		f.ui.event( { kind: "activate", id: "open-window:Storage" } );
 	},
 	"Academy Matching"( f ) {
-		f.state.gameplay.academy = { member: false, rows: [], request: null, page: 0 };
+		f.state.gameplay.academy = { member: false, rows: [], request: null, page: 0, pages: 0, result: null };
 		f.ui.event( { kind: "activate", id: "open-window:Academy Matching" } );
 	},
 	"Stall network"( f ) {
@@ -159,8 +163,10 @@ export const OPENERS = {
 		} );
 		await step();
 		f.ui.event( { kind: "activate", id: "npc-fortress-schedule" } );
+		const fortress = f.state.gameplay.fortress;
+		if ( !fortress ) throw Error( "Schedule recipe requires its fortress publication" );
 		f.state.gameplay.fortress = {
-			...f.state.gameplay.fortress,
+			...fortress,
 			serviceSequence: 1,
 			service: { action: 5, result: 1, applicants: [] }
 		};
@@ -181,8 +187,10 @@ export const OPENERS = {
 		} );
 		await step();
 		f.ui.event( { kind: "activate", id: "npc-fortress-tax" } );
+		const fortress = f.state.gameplay.fortress;
+		if ( !fortress ) throw Error( "Tax recipe requires its fortress publication" );
 		f.state.gameplay.fortress = {
-			...f.state.gameplay.fortress,
+			...fortress,
 			serviceSequence: 1,
 			service: { action: 0, result: 1, fortress: 1, taxRate: 10, gold: "1234" }
 		};
@@ -205,11 +213,15 @@ export const OPENERS = {
 		} );
 		await step();
 		f.ui.event( { kind: "activate", id: "npc-fortress-production:trainer" } );
-		f.state.gameplay.fortress.production = fortressProductionQuery( undefined, "trainer", 1, 1 );
-		f.state.gameplay.fortress = fortressPacket( f.state.gameplay.fortress, {
+		const fortress = f.state.gameplay.fortress;
+		if ( !fortress ) throw Error( "Production recipe requires its fortress publication" );
+		fortress.production = fortressProductionQuery( undefined, "trainer", 1, 1 );
+		const answer = fortressPacket( fortress, {
 			opcode: 0xb1e1,
 			payload: Uint8Array.from( [ 0x11, 1, 1, 0, 0, 0, 0 ] )
 		} );
+		if ( !answer ) throw Error( "Production recipe answer was not handled" );
+		f.state.gameplay.fortress = answer;
 	}
 };
 
@@ -226,7 +238,16 @@ export const SERVICE_WINDOWS = {
 		// 69D4F0: using the Global Chatting item opens CIFWholeChat on its slot.
 		Object.assign( f.state.gameplay, {
 			inventorySlotCount: 45,
-			inventory: [ { slot: BAG_SLOT, refObjId: 24600, typeFlags: GLOBAL_CHAT_TYPE, quantity: 3 } ]
+			inventory: [ {
+				slot: BAG_SLOT,
+				refObjId: 24600,
+				typeFlags: GLOBAL_CHAT_TYPE,
+				quantity: 3,
+				plus: 0,
+				durability: 0,
+				variance: "0",
+				magic: []
+			} ]
 		} );
 		f.ui.event( { kind: "double-activate", id: "slot:" + BAG_SLOT } );
 	},

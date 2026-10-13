@@ -245,8 +245,8 @@ func TestCompanionLeaseRenewalPreservesRecordAndRemainingTime(t *testing.T) {
 						}
 					}
 				}
-				// Frames[1] is the item's visual (publishItemUseVisual).
-				if len(result.Frames) < 3 || result.Frames[2].Opcode != 0x3645 || len(result.Frames[2].Payload) != 7 || binary.LittleEndian.Uint32(result.Frames[2].Payload[3:]) != uint32(pet.RentalRemainingSeconds) {
+				// Frames[1..2] are the item's reference and visual (publishItemUseVisual).
+				if len(result.Frames) < 4 || result.Frames[3].Opcode != 0x3645 || len(result.Frames[3].Payload) != 7 || binary.LittleEndian.Uint32(result.Frames[3].Payload[3:]) != uint32(pet.RentalRemainingSeconds) {
 					t.Fatal("renewal omitted native state/time delta", result)
 				}
 				assertItemUseRefusedUnchanged(t, rt, c, wire.NewWriter(4).U8(25).U16(ref.TypeFlags()).U8(23).Payload(), companionLeaseWrongTarget)
@@ -365,6 +365,10 @@ func TestLiveCompanionRevivalPublishesAliveAfterVitals(t *testing.T) {
 	// The broadcast ends with the item's reference and visual (publishItemUseVisual).
 	if pet.CurrentHP != 100 || len(result.Broadcast) != 4 || result.Broadcast[0].Opcode != simulation.OpVitalsUpdate || result.Broadcast[1].Opcode != wire.OpObjectStateRefresh || result.Broadcast[3].Opcode != wire.OpItemUseVisual {
 		t.Fatal("revival omitted world life/vitals", result)
+	}
+	// 49D240 case 6 names no object, so the revival's sparkle stays on the owner.
+	if gid := binary.LittleEndian.Uint32(result.Broadcast[3].Payload); gid != enterworld.ObjectIDForCharacter(c) {
+		t.Fatalf("revival sparkle on %d, want the owner", gid)
 	}
 	life := result.Broadcast[1].Payload
 	if len(life) != 6 || binary.LittleEndian.Uint32(life) != pet.GID || life[4] != wire.StateChannelLife || life[5] != wire.LifeStateAlive {

@@ -20,6 +20,7 @@ import {
 	sameStackIdentity,
 	stackable
 } from "@/engine/foundation/gameplay/container-transfer";
+import { INVENTORY_TRANSACTION_TIMEOUT } from "@/engine/contracts/network";
 import { createMall } from "./mall/mall";
 import { createCompanionRentals } from "./companion-rentals";
 import type { MallPurchase } from "@/engine/foundation/gameplay/item-mall-wire";
@@ -51,6 +52,7 @@ import { createGacha } from "./gacha/gacha";
 import { createMagicOptionGrant } from "./magic-option/magic-option";
 import { itemStateDelta } from "@/engine/foundation/gameplay/item-state-delta";
 import { itemSlotFlashKinds } from "@/engine/foundation/ui/item-slot-effects";
+import { itemMagicDefinitions } from "@/engine/foundation/ui/item-tooltip-magic";
 import type { ItemProcessCommand } from "@/engine/contracts/item-process";
 import {
 	saleResult,
@@ -90,6 +92,11 @@ const NPC_SHOP_CAPABILITY = 0x1;
 const STORAGE_CAPACITY_OPCODE = 0x3092;
 const STORAGE_CAPACITY_INVENTORY = 1;
 const NPC_SPECIAL_TRADE_CAPABILITY = 0x800;
+// A pet pickup answers when the pet reaches the drop or gives up: the
+// server allows its approach 9000 ms (cosground.go cosPickupApproachTimeoutMs),
+// retires it on the pet's next tick, then the answer crosses the network. The
+// shared 10 s wait left one second for both, and a long walk ended sessions.
+const COS_PICKUP_ANSWER_MS = 15000;
 /*
 ================
 createInventory
@@ -208,29 +215,13 @@ present
 	function present( item: InventoryItem ): InventoryItem {
 		const cached = presentations.get( item );
 		if ( cached ) return cached;
-		const tooltip = tooltipRefs.get( item.refObjId ),
-			// 55B608 selects degree one for class zero by signed division toward zero.
-			degree = Math.trunc( ((tooltip?.fields.itemClass ?? 1) - 1) / 3 ) + 1,
-			definitions = new Map<
-				number,
-				import("@/engine/foundation/gameplay/item-tooltip-reference").ItemMagicReference
-			>();
-		for ( const encoded of item.magic ) {
-			const ref = magicRefs.get( Number( BigInt( encoded ) & 0xffffn ) );
-			if ( !ref ) continue;
-			definitions.set( ref.paramId, ref );
-			for ( const candidate of magicRefs.values() ) {
-				if ( candidate.optionName === ref.optionName && candidate.degree === degree ) {
-					definitions.set( candidate.paramId, candidate );
-				}
-			}
-		}
+		const tooltip = tooltipRefs.get( item.refObjId );
 		const result = {
 			...item,
 			name: names.get( item.refObjId ) ?? item.name,
 			icon: icons.get( item.refObjId ) ?? item.icon,
 			tooltip,
-			magicReferences: [ ...definitions.values() ]
+			magicReferences: itemMagicDefinitions( item.magic, magicRefs, tooltip?.fields.itemClass )
 		};
 		presentations.set( item, result );
 		return result;
@@ -797,8 +788,11 @@ notice symbol of a refusal the client makes itself.
 		): string | null {
 			if ( command.kind === "magic-option-take" ) return magicOption.take( slots.get( command.slot ) );
 			if ( busy() ) throw Error( "Inventory process unavailable" );
-			const item = slots.get( magicOption.state().item ?? -1 ),
-				result = magicOption.grant( command.codename, item );
+			// The free-slot check reads the reference's option capacity
+			// (maxMagicOptions51c), which only the presented item carries; the
+			// bare slot row read as 0 and refused every grant without a request.
+			const row = slots.get( magicOption.state().item ?? -1 ),
+				result = magicOption.grant( command.codename, row && present( row ) );
 			if ( result.frame ) send( result.frame );
 			return result.notice ?? null;
 		},
@@ -1083,7 +1077,7 @@ cosGround
 				cosGid: v.getUint32( 1, true ),
 				source: p[0] === 0x12 ? p[5]! : 0,
 				movementType: p[0],
-				deadline: now + 10000
+				deadline: now + (p[0] === 0x11 ? COS_PICKUP_ANSWER_MS : 10000)
 			};
 			error = null;
 			return frame;
@@ -2003,7 +1997,7 @@ step
 			if ( timedOut || pending && now >= pending.deadline ) {
 				if ( !timedOut && pending ) timedOutRequest = describeRequest( pending );
 				timedOut = true;
-				throw Error( timeoutMessage() );
+				throw Error( timeoutMessage(), { cause: INVENTORY_TRANSACTION_TIMEOUT } );
 			}
 			return unlocked || expired || rentalUpdates.length > 0;
 		},

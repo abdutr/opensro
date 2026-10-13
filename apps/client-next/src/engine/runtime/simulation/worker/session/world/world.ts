@@ -16,7 +16,10 @@ import { createDeparture } from "./departure";
 import type { GameplayCommand } from "@/engine/contracts/gameplay";
 import {
 	type ClientIncident,
+	DEGRADED_CODES_PER_SESSION,
+	INVENTORY_TRANSACTION_TIMEOUT,
 	MOVEMENT_RECEIPT_TIMEOUT,
+	TARGET_RELEASE_TIMEOUT,
 	type NetworkFailure,
 	INCIDENT_DUMP_BYTES,
 	INCIDENT_MESSAGE_LENGTH,
@@ -31,6 +34,20 @@ const MAX_RECONNECT_DELAY_MS = 4000;
 // waking or a Wi-Fi hand-over outlasts a few fast attempts.
 const RESUME_GRACE_MS = 30000;
 const MAX_CHARACTER_NAME_LENGTH = 64;
+
+/*
+================
+lostAnswer
+
+The timeouts that mean an answer was lost across the transport (doc.go
+keeps no frame written to a dying socket), not a game error: each resumes
+the session, whose bootstrap retires the request without replaying it.
+================
+*/
+function lostAnswer( cause: unknown ): boolean {
+	return cause === MOVEMENT_RECEIPT_TIMEOUT || cause === INVENTORY_TRANSACTION_TIMEOUT ||
+		cause === TARGET_RELEASE_TIMEOUT;
+}
 
 /*
 ================
@@ -50,6 +67,49 @@ export function createWorldSession(
 ) {
 	let failure: string | null = null, epoch = 0, disposed = false, controller: AbortController | null = null;
 	let diagnosticSession = "", disconnectMessage = "", incidentID = "", failureCode = "";
+	// Degraded codes reported, keyed "<diagnostic session>|<code>" (reportDegradations).
+	const reportedDegradations = new Set<string>();
+	/*
+================
+reportDegradations
+
+The owners' skipped cosmetic steps as non-fatal "degraded" reports, with the
+same evidence as a fatal one (the frame and the #800 journal). Each code is
+reported once per diagnostic session, and at most DEGRADED_CODES_PER_SESSION
+codes: one bad item cannot flood the Agent.
+================
+	*/
+	function reportDegradations() {
+		for ( const degradation of core.takeDegradations() ) {
+			const key = diagnosticSession + "|" + degradation.code;
+			if ( reportedDegradations.has( key ) ) continue;
+			let codes = 0;
+			for ( const reported of reportedDegradations ) {
+				if ( reported.startsWith( diagnosticSession + "|" ) ) codes++;
+			}
+			if ( codes >= DEGRADED_CODES_PER_SESSION ) continue;
+			reportedDegradations.add( key );
+			const frame = degradation.frame, dump = frame?.payload.subarray( 0, INCIDENT_DUMP_BYTES );
+			reportIncident( {
+				id: crypto.randomUUID().replaceAll( "-", "" ),
+				category: "degraded",
+				session: diagnosticSession || undefined,
+				code: degradation.code,
+				kind: "degraded",
+				message: degradation.message.slice( 0, INCIDENT_MESSAGE_LENGTH ),
+				...(frame ?
+					{
+						opcode: frame.opcode,
+						payload: Array.from( dump!, byte => byte.toString( 16 ).padStart( 2, "0" ) ).join( "" ),
+						payloadSize: frame.payload.byteLength
+					} :
+					{}),
+				phase,
+				character,
+				journal: network.recentJournal()
+			} );
+		}
+	}
 	/*
 ================
 onNetworkFailure
@@ -91,7 +151,8 @@ onNetworkFailure
 				} :
 				{}),
 			phase,
-			character
+			character,
+			journal: network.recentJournal()
 		} );
 	}
 	const network = createNetwork( onNetworkFailure );
@@ -380,6 +441,7 @@ takeDeparture
 			return value;
 		},
 		options: core.options,
+		experimental: core.experimental,
 		/*
 ================
 command
@@ -521,23 +583,36 @@ step
 				pingMs = nextPing;
 				revision++;
 			}
-			if ( phase === "world" && !failure ) {
+			// The world advances only once the scene is ready (0x3012 sent). On
+			// the loading screen the native loop is frozen, so nothing automatic
+			// (an auto-potion, a skill queue, a pet order) can send a request
+			// the server, still loading the scene, would discard unanswered.
+			const live = phase === "world" && ready && !failure;
+			if ( live ) {
 				try {
 					departure.step( now );
 					core.step( now );
 				} catch ( error ) {
-					const receiptTimeout = error instanceof Error && error.cause === MOVEMENT_RECEIPT_TIMEOUT;
+					// A lost answer, not a game error: every such lane resumes through
+					// the bootstrap, which rebuilds the state the request left pending.
+					const cause = error instanceof Error ? error.cause : undefined;
+					const lost = lostAnswer( cause );
 					onNetworkFailure( String( error ), undefined, {
-						category: receiptTimeout ? "unknown" : "software",
-						code: receiptTimeout ? MOVEMENT_RECEIPT_TIMEOUT : "simulation_failed",
-						message: receiptTimeout ?
+						category: lost ? "unknown" : "software",
+						code: lost ? cause as string : "simulation_failed",
+						message: cause === MOVEMENT_RECEIPT_TIMEOUT ?
 							"Movement synchronization timed out. Please reconnect." :
+							cause === TARGET_RELEASE_TIMEOUT ?
+							"Target synchronization timed out. Please reconnect." :
+							lost ?
+							"Item synchronization timed out. Please reconnect." :
 							"A game error interrupted your session.",
 						stack: error instanceof Error ? error.stack?.slice( 0, 8192 ) : undefined
 					} );
 				}
 			}
-			if ( phase !== "world" || failure ) {
+			reportDegradations();
+			if ( !live || failure ) {
 				try {
 					core.step( now, false );
 				} catch ( error ) {
@@ -569,7 +644,7 @@ step
 				// Reuse admission/resume to replace stale prediction with server state.
 				if (
 					hasWorld && resume && (attempt === 0 || now - reconnectSince < RESUME_GRACE_MS) &&
-					(failureCode === MOVEMENT_RECEIPT_TIMEOUT || [
+					(lostAnswer( failureCode ) || [
 						"Transport connection closed",
 						"Transport connection failed",
 						"World connection timed out",

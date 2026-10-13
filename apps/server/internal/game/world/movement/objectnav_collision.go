@@ -345,6 +345,36 @@ func objectMeshChordContact(mesh *objectNavMesh, x0, z0, y0, x1, z1, y1, bestT f
 // Every chord sector therefore searches its 3x3 anchor neighborhood.
 const objectAnchorSearchRadiusSectors = 1
 
+/*
+================
+chordSectors
+
+The sectors a chord stands in, in the order the walker reaches them: the
+start sector, every sector the supercover walk enters, then the end sector,
+each once. Native CRTNavMeshTerrain_Move (404510) steps the placements of
+each cell as it reaches it, and the scans keep the first of two equal
+candidates, so the order is part of the result: a set (Go map) iteration
+let a placement reachable through two surface identities (a multi-region
+bundle and the neighbour's own bundle) win under either, run to run.
+buf is the caller's stack storage.
+================
+*/
+func (v *WaterValidator) chordSectors(buf []globalTile, ax, az, bx, bz float64) []globalTile {
+	start := globalTile{x: int(math.Floor(ax / simulation.NativeRegionSize)), z: int(math.Floor(az / simulation.NativeRegionSize))}
+	end := globalTile{x: int(math.Floor(bx / simulation.NativeRegionSize)), z: int(math.Floor(bz / simulation.NativeRegionSize))}
+	sectors := append(buf[:0], start)
+	v.walkChord(ax, az, bx, bz, simulation.NativeRegionSize, start, end, func(sector globalTile, _ float64) bool {
+		if !slices.Contains(sectors, sector) {
+			sectors = append(sectors, sector)
+		}
+		return false
+	})
+	if !slices.Contains(sectors, end) {
+		sectors = append(sectors, end)
+	}
+	return sectors
+}
+
 // objectChordFirstContact walks the world-frame move chord against resolved
 // object-nav placements anchored on the chord or in an adjacent sector. The
 // candidate sectors come from a supercover walk rather than the chord's whole
@@ -355,28 +385,8 @@ objectChordFirstContact
 ================
 */
 func (v *WaterValidator) objectChordFirstContact(fromWX, fromWZ, fromY, toWX, toWZ, toY float64, walk *navWalk) (float64, float64, bool, objectContactPoint) {
-	start := globalTile{
-		x: int(math.Floor(fromWX / simulation.NativeRegionSize)),
-		z: int(math.Floor(fromWZ / simulation.NativeRegionSize)),
-	}
-	end := globalTile{
-		x: int(math.Floor(toWX / simulation.NativeRegionSize)),
-		z: int(math.Floor(toWZ / simulation.NativeRegionSize)),
-	}
-	chordSectors := map[globalTile]struct{}{start: {}, end: {}}
-	v.walkChord(
-		fromWX,
-		fromWZ,
-		toWX,
-		toWZ,
-		simulation.NativeRegionSize,
-		start,
-		end,
-		func(sector globalTile, _ float64) bool {
-			chordSectors[sector] = struct{}{}
-			return false
-		},
-	)
+	var sectorBuf [8]globalTile
+	chordSectors := v.chordSectors(sectorBuf[:], fromWX, fromWZ, toWX, toWZ)
 
 	// Nine anchors per crossed sector: a scan of a stack array, not a map
 	// that allocated its buckets on every monster chord (57 MB a minute).
@@ -396,7 +406,7 @@ func (v *WaterValidator) objectChordFirstContact(fromWX, fromWZ, fromY, toWX, to
 			return
 		}
 		checked = append(checked, key)
-		set := v.objectNavSetForOffset(surface, dx, dz)
+		set, setReach := v.objectNavSetReach(surface, dx, dz)
 		if len(set) == 0 {
 			return
 		}
@@ -404,8 +414,20 @@ func (v *WaterValidator) objectChordFirstContact(fromWX, fromWZ, fromY, toWX, to
 		lz0 := fromWZ - float64(anchorZ)*simulation.NativeRegionSize
 		lx1 := toWX - float64(anchorX)*simulation.NativeRegionSize
 		lz1 := toWZ - float64(anchorZ)*simulation.NativeRegionSize
+		// A chord that misses every placement of the set contacts none of them,
+		// unless the walk stands on one (the placement test below, set-wide).
+		if setReach.missedBy(lx0, lz0, lx1, lz1) && !walk.ownsInSet(surface, dx, dz) {
+			return
+		}
 		passages := resolveObjectPassages(set, lx0, fromY, lz0, lx1, toY, lz1)
+		anchorWX, anchorWZ := float64(anchorX)*simulation.NativeRegionSize, float64(anchorZ)*simulation.NativeRegionSize
 		for i := range set {
+			// A chord that misses everything this placement holds cannot
+			// contact it (objectnav_reach.go), unless the walk owns one of
+			// its meshes: that walk is scanned whatever the box says.
+			if set[i].reach.missedBy(lx0, lz0, lx1, lz1) && !walk.ownsAnyMesh(&set[i], anchorWX, anchorWZ) {
+				continue
+			}
 			placement := set[i].placement
 			cosYaw, sinYaw := set[i].cosYaw, set[i].sinYaw
 			ox0 := cosYaw*(lx0-placement.x) + sinYaw*(lz0-placement.z)
@@ -452,7 +474,7 @@ func (v *WaterValidator) objectChordFirstContact(fromWX, fromWZ, fromY, toWX, to
 		}
 	}
 
-	for sector := range chordSectors {
+	for _, sector := range chordSectors {
 		if sector.x < 0 || sector.z < 0 || sector.x > 0xff || sector.z > 0xff {
 			continue
 		}

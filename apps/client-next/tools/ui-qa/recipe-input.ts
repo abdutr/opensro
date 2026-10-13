@@ -6,6 +6,7 @@ Recipes may seed snapshots but must not invent input targets or menu permissions
 ===========================================================================
 */
 import type { RecipeContext } from "./extended";
+import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
 
 /*
 ================
@@ -43,12 +44,14 @@ npc
 ================
 */
 export function npc( context: RecipeContext, capabilities: number, name = "Service official" ) {
-	context.state.entities = context.state.entities.filter( ( row: any ) => row.gid !== 99 );
-	context.state.entities.push( { ...context.state.entities[0], gid: 99, refObjId: 2011, kind: "npc", name } );
+	context.state.entities = context.state.entities.filter( ( row ) => row.gid !== 99 );
+	const player = context.state.entities[0];
+	if ( !player ) throw Error( "NPC recipe requires a player snapshot" );
+	context.state.entities.push( { ...player, gid: 99, refObjId: 2011, kind: "npc", name } );
 	Object.assign( context.state.gameplay, {
 		target: 99,
 		targetCapabilities: capabilities,
-		npcConversation: { phase: "menu", gid: 99, dialogueRevision: 1 }
+		npcConversation: { phase: "menu", gid: npcGid( 99 ), dialogueRevision: 1 }
 	} );
 }
 
@@ -57,11 +60,33 @@ export function npc( context: RecipeContext, capabilities: number, name = "Servi
 published
 ================
 */
-export async function published( name: string ) {
+export async function published( name: string ): Promise<unknown> {
 	if ( !/^[a-zA-Z0-9-]+$/.test( name ) ) throw Error( "Invalid fixture data name" );
 	const response = await fetch( `/assets/data/${name}.json` );
 	if ( !response.ok ) throw Error( `Published fixture reference unavailable: ${name}` );
 	return response.json();
+}
+
+/*
+================
+fixtureGuild
+================
+*/
+export function fixtureGuild( context: RecipeContext ) {
+	const guild = context.state.gameplay.social.guild;
+	if ( !guild ) throw Error( "Guild recipe requires a guild snapshot" );
+	return guild;
+}
+
+/*
+================
+guildMember
+================
+*/
+export function guildMember( context: RecipeContext ) {
+	const member = fixtureGuild( context ).members[0];
+	if ( !member ) throw Error( "Guild recipe requires its local member" );
+	return member;
 }
 
 export const herb = {

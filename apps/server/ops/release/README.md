@@ -31,7 +31,7 @@ manifest. Such an application candidate cannot change data files, data routes or
 asset schema; a data candidate (below) can. The staging
 key creates an immutable preview and shared hashed application files without
 changing `/play`. The release gate (`apps/client-next/tools/beta/release-gate.mjs`)
-must pass within 30 seconds using a dedicated non-GM account: a browser boots
+must pass within 90 seconds (30 s per step) using a dedicated non-GM account: a browser boots
 the staged candidate (title), and the release's own simulation worker runs
 headlessly through login, roster, world entry, a server-confirmed move
 (gameplay) and a session-restoring reload (resume). No scene is rendered, so
@@ -71,6 +71,13 @@ produce it, so the operator stages it with `data_release.py`:
 ```sh
 python data_release.py PACKAGE OUTPUT --origin https://game.example.com   --ssh-target sro-stage@host --identity ~/.ssh/operator-stage [--coordinated] [--max-batch-mib 16]
 ```
+
+The upload pins the host and ignores the operator's ssh setup (`ci.ssh_options`:
+`-F none`, no agent, only the given key). Set `RELEASE_KNOWN_HOSTS_FILE` to the
+host's verified known_hosts file; the tool refuses to run without it. Because
+`-F none` drops `~/.ssh/config`, a host reached through a local proxy also
+needs `RELEASE_SSH_PROXY_COMMAND` (an ssh `ProxyCommand`, for example a fast
+relay to the proxy; a `connect.exe` route moves only about 0.07 MB/s).
 
 On a slow link (a VPN), `--max-batch-mib` makes smaller batches. Each
 upload's time limit grows with its size (at least 32 KiB/s), and a timed-out
@@ -152,6 +159,41 @@ it ships as a server release on its own. A server rollout that fails its own
 health checks leaves the journal `failed`; revert is the recovery. While the
 journal is open, every other publication is refused.
 
+**Who may end an operation.** `coordinate` names its operation with a fresh
+nonce, kept in `operation.json` before the request is sent. The public journal
+holds only its sha256. `confirm` and `revert` echo the nonce (from that file,
+or `--nonce`), so a publisher that wakes from sleep cannot end an operation it
+did not open. A publisher that lost the nonce passes `--takeover REASON`
+instead; the takeover is journaled on the operation and alerted to staff
+before it acts. A publisher that runs these commands must run `coordinate`,
+`confirm` and `revert` from one operation directory, or pass `--nonce`: a
+runner that splits them across jobs or machines carries the nonce itself.
+`install.py` refuses to replace the controls while an operation is open
+(naming its component and phase). An operation is ended by the controls that
+opened it, so one opened before the nonce existed never needs a takeover.
+
+**Publication runs on the host, not in the SSH session.** The publication
+key's request is filed under `/var/lib/opensro-release/requests` (the
+receiver's default; created 0700 on first use, so a host whose controls
+were installed without `install.py` still publishes) and run as its own
+transient unit
+(`opensro-release-<job>`, log: `journalctl -u opensro-release-<job>`). The SSH
+session only follows it and prints its result. A dropped session (the
+publisher's PC asleep, a proxy restart) loses the printed result, never the
+work. The unit records the result beside the request for an operator; the
+dead-man prunes both after a week.
+
+**Dead-man.** `opensro-release-deadman.timer` runs every five minutes as root.
+`install.py` installs it, as does the release runner's control install; a
+host without it still publishes, but nothing expires a left operation.
+It never waits for the host lock: while any release step holds it, the timer
+does nothing. Otherwise, a coordinated operation left in `deploying`,
+`verifying`, `failed` or `reverting` for longer than 30 minutes is reverted on
+the host, with the reason "dead-man: …", exactly as `revert` would. The limit
+is `deadman_seconds` in the host configuration. Two cases alert staff once and
+are left for an operator: a `revert-failed` operation, and a single-component
+operation whose receiver died (it has no host-side revert).
+
 ## Maintenance releases
 
 A maintenance release is a coordinated pair published inside a closed
@@ -172,10 +214,24 @@ without them is refused before it changes anything.
 1. `publish` closes the gate: `<module>/.state/cluster/maintenance-gate.json`
    lists those accounts, and every GameWorld then mints EnterWorld tokens for
    them alone (`SRO_MAINTENANCE_GATE_PATH`, set by `sro-nomad`). It then
-   announces, backs up, stops the fleet and runs the server's offline upgrade
-   on every enabled shard. Each shard is journaled before its commit, then
-   with the backup the upgrade kept and its sha256, before the new server
-   deploys and the client switches.
+   backs up, validates the new release, announces, stops the fleet and runs
+   the server's offline upgrade on every enabled shard. Each shard is
+   journaled before its commit, then with the backup the upgrade kept and its
+   sha256, before the new server deploys and the client switches.
+
+   Validation (`sro-nomad validate -assume-stopped`) runs before anything
+   stops, so any refusal leaves the server running. `sro-nomad` refuses to
+   replace a credential variable while its job is registered; with
+   `-assume-stopped` it reports such a variable (`requires-stop <job> <path>`)
+   instead. A release that changes one (anything `sro-provision-identity`
+   creates, such as `public-api-token`) can therefore ship only as a
+   maintenance release: the deploy stops the fleet after the notice and
+   validates again. A plain release that changes one is refused, as is a
+   staged candidate whose rehearsal finds one and is not built for
+   maintenance. A maintenance revert stops the same way when the release it
+   restores changes a credential back. A revert to a release built before
+   `-assume-stopped` stops first in maintenance and validates before anything
+   stops otherwise (2026-10-11, opensro #759 and this change).
 2. The release gate runs as the probe account against the closed window, and
    its evidence is recorded as for any pair.
 3. `confirm` records the release, then removes the gate: players refresh and
@@ -188,6 +244,10 @@ without them is refused before it changes anything.
    missing or changed, or a shard journaled without one, refuses the restore
    and leaves the journal `revert-failed` with the gate closed for an
    operator.
+
+A failed request's reason is in the host journal (`journalctl -t
+opensro-release`, secret-like strings masked) as well as on the operator's
+SSH stream.
 
 After confirm, no workflow crosses the schema back; that takes restoring
 the upgrade's backup by hand. After any manual recovery, reopen the game by
@@ -336,6 +396,12 @@ The tool compares it with the game checkout's `origin/main` before publication.
 - `RELEASE_HOST`: your host address.
 - `RELEASE_KNOWN_HOSTS`: its verified SSH host-key entry. Do not discover
   and trust a new key during the deployment job.
+- `RELEASE_KEY_FILE` / `RELEASE_KNOWN_HOSTS_FILE`: on the operator's machine,
+  the same two as files used in place (never both the text and the file).
+  `data_release.py` reads `RELEASE_KNOWN_HOSTS_FILE` too.
+- `RELEASE_SSH_PROXY_COMMAND`: an ssh `ProxyCommand` for a host reached
+  through a local proxy. Every release connection runs with `-F none`, so
+  `~/.ssh/config` routes do not apply.
 
 Keep staging and publication credentials separate. Browser smoke also requires
 `RELEASE_ORIGIN` and `RELEASE_PROBE_ACCOUNT`. The latter secret is JSON containing

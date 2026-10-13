@@ -16,8 +16,12 @@ import { socialRecipes } from "./recipes-social";
 import { reachabilityRecipes } from "./recipes-reachability";
 import { surfaceRecipes } from "./recipes-surfaces";
 import { completionRecipes } from "./recipes-completion";
+import { fixtureGuild, guildMember } from "./recipe-input";
+import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
+import type { FixtureState } from "./fixture-state";
 
 export interface RecipeContext extends EntryFixture {
+	state: FixtureState;
 	step(): Promise<void>;
 	advance( milliseconds: number ): void;
 	platform: Platform;
@@ -88,12 +92,12 @@ async function guildManager( context: RecipeContext, row: string ) {
 	const game = context.state.gameplay;
 	game.target = 99;
 	game.targetCapabilities = 0x4000;
-	game.npcConversation = { phase: "menu", gid: 99, dialogueRevision: 1 };
+	game.npcConversation = { phase: "menu", gid: npcGid( 99 ), dialogueRevision: 1 };
 	if ( row === "create" ) game.social = { ...game.social, guild: null };
 	else {
-		game.social = { ...game.social, guild: { ...game.social.guild, level: 2 } };
-		if ( row === "secede" || row === "vote" ) game.social.guild.members[0].grade = 1;
-		if ( row === "vote" ) game.social.guild.votes = [ { id: 7, kind: 0, remainingMs: 60000 } ];
+		game.social = { ...game.social, guild: { ...fixtureGuild( context ), level: 2 } };
+		if ( row === "secede" || row === "vote" ) guildMember( context ).grade = 1;
+		if ( row === "vote" ) fixtureGuild( context ).votes = [ { id: 7, kind: 0, remainingMs: 60000 } ];
 	}
 	await context.step();
 	activate( context, "npc-guild:" + row );
@@ -119,7 +123,7 @@ export const extendedRecipes: readonly ExtendedRecipe[] = [
 		source: "tests/runtime/ui-behavior.test.mjs:1832",
 		control: "invite-accept",
 		open( context: RecipeContext ) {
-			context.state.entities = context.state.entities.map( ( row: any ) =>
+			context.state.entities = context.state.entities.map( ( row ) =>
 				row.gid === 3 ? { ...row, guildName: "Visitor Guild" } : row
 			);
 			context.state.gameplay.social = { ...context.state.gameplay.social, invitation: { type, gid: 3 } };
@@ -237,7 +241,7 @@ export const extendedRecipes: readonly ExtendedRecipe[] = [
 		control: "resurrection-accept",
 		async open( context: RecipeContext ) {
 			context.state.gameplay.vitals = [ { gid: 1, hp: 0, mp: 0, deathState: true } ];
-			context.state.entities = context.state.entities.map( ( row: any ) =>
+			context.state.entities = context.state.entities.map( ( row ) =>
 				row.gid === 1 ? { ...row, appearanceState: [ 2, 0, 0 ] } : row
 			);
 			await context.step();
@@ -253,7 +257,7 @@ export const extendedRecipes: readonly ExtendedRecipe[] = [
 		async open( context: RecipeContext ) {
 			context.state.gameplay.progression = { ...context.state.gameplay.progression, level };
 			context.state.gameplay.vitals = [ { gid: 1, hp: 0, mp: 0, deathState: true } ];
-			context.state.entities = context.state.entities.map( ( row: any ) =>
+			context.state.entities = context.state.entities.map( ( row ) =>
 				row.gid === 1 ? { ...row, appearanceState: [ 2, 0, 0 ] } : row
 			);
 			await context.step();

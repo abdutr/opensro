@@ -8,7 +8,7 @@ Server responses are never synthesized as consequences of submitted commands.
 */
 import type { ExtendedRecipe, RecipeContext } from "./extended";
 import { OPENERS } from "../../tests/helpers/ui-entry-recipes.mjs";
-import { herb, openPanel, press } from "./recipe-input";
+import { fixtureGuild, guildMember, herb, openPanel, press } from "./recipe-input";
 import { defaultGameOptions } from "../../src/engine/foundation/gameplay/game-options";
 
 /*
@@ -127,7 +127,11 @@ export const completionRecipes: readonly ExtendedRecipe[] = [
 		source: "runtime/ui/ui.ts Shift Backquote handler; runtime/ui/hud/gm-console.ts",
 		control: "gm-input",
 		async open( context ) {
-			context.state.gameplay.eligibility = { ...context.state.gameplay.eligibility, gm: true };
+			context.state.gameplay.eligibility = {
+				pcRoomEvent: false,
+				...context.state.gameplay.eligibility,
+				gm: true
+			};
 			await context.step();
 			context.ui.event( { kind: "key", code: "Backquote", shift: true } );
 			context.advance( 1000 );
@@ -250,8 +254,9 @@ export const completionRecipes: readonly ExtendedRecipe[] = [
 		async open( context ) {
 			await OPENERS["Fortress production"]!( context, context.step );
 			const game = context.state.gameplay;
-			game.social.guild.members[0].role = 1;
-			game.fortress = { ...game.fortress, wars: [ { id: 1, name: game.social.guild.name, flags: 0 } ] };
+			guildMember( context ).role = 1;
+			if ( !game.fortress ) throw Error( "Production recipe requires its fortress publication" );
+			game.fortress = { ...game.fortress, wars: [ { id: 1, name: fixtureGuild( context ).name, flags: 0 } ] };
 			await context.step();
 			await press( context, "fortress-production-make:9001" );
 		}

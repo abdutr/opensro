@@ -99,18 +99,6 @@ export const EXPERIMENTAL_TABS: readonly {
 				id: "experimental-dynamic-sun",
 				label: "Moving sunlight",
 				description: "Lighting follows the time of day."
-			},
-			{
-				key: "terrainRelief",
-				id: "experimental-terrain-relief",
-				label: "Terrain relief",
-				description: "Shades slopes. Reloads the current area."
-			},
-			{
-				key: "texturedHorizon",
-				id: "experimental-textured-horizon",
-				label: "Textured horizon",
-				description: "Shows distant ground textures; may shimmer."
 			}
 		]
 	},
@@ -133,13 +121,23 @@ export const EXPERIMENTAL_TABS: readonly {
 		]
 	},
 	{
-		title: "Chat",
-		section: "Chat display",
+		title: "Game",
+		section: "Chat and movement",
 		rows: [ {
 			key: "chatTimestamps",
 			id: "experimental-chat-timestamps",
 			label: "Chat timestamps",
 			description: "Show message time on hover."
+		}, {
+			key: "predictedRunUp",
+			id: "experimental-predicted-run-up",
+			label: "Predicted run-up",
+			description: "Walk toward a far target at the press; may jump at the cast."
+		}, {
+			key: "smoothCamera",
+			id: "experimental-smooth-camera",
+			label: "Smooth camera",
+			description: "Ease small camera height jumps and the return after a wall."
 		} ]
 	},
 	{

@@ -11,7 +11,7 @@ import { socialPacket } from "../../src/engine/foundation/gameplay/social";
 import { fortressBootstrap } from "../../src/engine/foundation/gameplay/fortress";
 import { jobOutcomeAnswer } from "../../src/engine/foundation/gameplay/job-guild";
 import { OPENERS } from "../../tests/helpers/ui-entry-recipes.mjs";
-import { herb, npc, openPanel, press } from "./recipe-input";
+import { fixtureGuild, guildMember, herb, npc, openPanel, press } from "./recipe-input";
 
 /*
 ================
@@ -54,7 +54,7 @@ fortressTarget
 */
 async function fortressTarget( context: RecipeContext, allowed: boolean ) {
 	const game = context.state.gameplay;
-	game.social.guild.members[0].role = allowed ? 2 : 8;
+	guildMember( context ).role = allowed ? 2 : 8;
 	game.target = 31;
 	game.targetCapabilities = 0;
 	game.npcConversation = { phase: "closed" };
@@ -64,10 +64,12 @@ async function fortressTarget( context: RecipeContext, allowed: boolean ) {
 			siegeFortressData: [ { fortressId: 1, codeName: "FORTRESS_JANGAN", nameStrId: "SN_FORTRESS_JANGAN" } ]
 		} ),
 		worldId: 7,
-		wars: [ { id: 1, name: game.social.guild.name, flags: 1 } ]
+		wars: [ { id: 1, name: fixtureGuild( context ).name, flags: 1 } ]
 	};
+	const player = context.state.entities[0];
+	if ( !player ) throw Error( "Fortress recipe requires its player snapshot" );
 	context.state.entities.push( {
-		...context.state.entities[0],
+		...player,
 		gid: 31,
 		refObjId: 19565,
 		kind: "structure",
@@ -129,7 +131,7 @@ export const reachabilityRecipes: readonly ExtendedRecipe[] = [
 		source: "tests/helpers/ui-entry-recipes.mjs Fortress tax; runtime/ui/ui.ts fortress-tax-modify/collect",
 		controls: [ "fortress-tax-yes", "fortress-tax-no" ],
 		async open( context: RecipeContext ) {
-			context.state.gameplay.social.guild.members[0].role = 1;
+			guildMember( context ).role = 1;
 			await OPENERS["Fortress tax"]!( context, context.step );
 			await context.step();
 			await press( context, "fortress-tax-" + action );
@@ -215,7 +217,22 @@ export const reachabilityRecipes: readonly ExtendedRecipe[] = [
 				request: {
 					a: 7,
 					b: 42,
-					member: { id: 77, name: "Peer", model: 1907, level: 20, region: 1 },
+					native7c0: 0,
+					primary: 0,
+					secondary: 0,
+					flags: 0,
+					member: {
+						id: 77,
+						name: "Peer",
+						model: 1907,
+						level: 20,
+						region: 1,
+						status: 0xaa,
+						x: 0,
+						y: 0,
+						z: 0,
+						war: 0
+					},
 					expires: 20000
 				}
 			};

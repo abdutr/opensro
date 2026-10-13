@@ -16,6 +16,10 @@ changes: frame() answers "idle" and input wakes the runtime's loop.
 
 The outcome goes to the embedding page: viewer-ready / viewer-still /
 viewer-error messages to the parent or opener, and window.__viewerStill.
+A batch still (batch=1, the catalogue's portraits) keeps the owners after
+its picture and offers window.__viewerNext(refObjId): the next monster
+replaces the drawn one in the same page, so assets, pipelines and shared
+textures load once for the whole catalogue instead of once per monster.
 
 ===========================================================================
 */
@@ -42,7 +46,9 @@ import {
 } from "@/engine/foundation/rendering/viewer-camera";
 import { opaqueBox } from "@/engine/foundation/rendering/texel-readback";
 
-// The one entity's gid; nothing else exists on the page.
+// The first entity's gid. A batch gives each next monster the following
+// gid: the character owner keeps per-gid state, so a new monster under the
+// old gid would show the old model.
 const VIEWER_GID = 1;
 // A model that has not drawn within this many milliseconds of drawing time
 // fails "timeout". One frame counts at most MAX_FRAME_STEP_MS, so a page that
@@ -52,6 +58,12 @@ const MAX_FRAME_STEP_MS = 100;
 // Frames drawn after the model is resident before the readback: the first
 // frame admits the doll's draws, the next one has them in the target.
 const SETTLE_FRAMES = 2;
+// Drawing time a doll's effect particles (a SoX glow) run before the picture
+// settles, so a still shows them emitted rather than at their first frame.
+const GLOW_WARMUP_MS = 600;
+// How long a framed doll waits for its effect programs before it settles
+// without them (an effect that cannot load must not fail the picture).
+const GLOW_WAIT_MS = 8000;
 // The interactive view: radians of turn per dragged pixel, the zoom factor
 // per wheel pixel, and the zoom range around the framed distance.
 const YAW_PER_PIXEL = 0.01;
@@ -66,21 +78,26 @@ const MAX_PICTURE_SIDE = 1024;
 // Models face -z at the doll's yaw 0 (portrait.ts), so that is their front.
 const MODEL_FRONT: readonly [number, number] = [ 0, -1 ];
 const WHITE: readonly [number, number, number, number] = [ 1, 1, 1, 1 ];
-// The viewer's studio light (port-only, docs/VIEWER.md). Without a world the
-// environment falls back to a white ambient of 1 under a 0.6 diffuse, which
-// washes every model flat, and the retail light comes from the model's side.
-// A warm key from in front of the model and above, over a cooler, lower
-// fill, gives it its shading back. Models face -z (MODEL_FRONT); the
-// direction points toward the light.
+// The viewer's light: the game's own noon, as the inventory doll is lit at
+// midday. Without a world the environment falls back to a white ambient of
+// 1, which washes every model flat. The shipped environment tracks at noon
+// give diffuse 0.6 x color0xf0 = 0.285 and ambient color0x124 = 0.78
+// (world-environment.ts, renderer slots 8 and 12); native light never
+// exceeds that 0.6 diffuse scale. An invented brighter key (1.15) doubled
+// through the equipment env-map stage (AEE6D0, MODULATE2X) and turned pale
+// armour white. Only the direction is the viewer's (port-only,
+// docs/VIEWER.md): from in front of the model and above, since the retail
+// sun would light it from the side. Models face -z (MODEL_FRONT).
 const VIEWER_LIGHT: ViewerLight = {
-	diffuse: [ 1.15, 1.08, 0.98 ],
-	ambient: [ 0.38, 0.4, 0.47 ],
+	diffuse: [ 0.285, 0.285, 0.285 ],
+	ambient: [ 0.78, 0.78, 0.78 ],
 	direction: [ 0, 0.67, -0.74 ]
 };
 
 declare global {
 	interface Window {
 		__viewerStill?: Promise<string>;
+		__viewerNext?: ( refObjId: number ) => Promise<string>;
 	}
 }
 
@@ -98,6 +115,8 @@ export interface ViewerCharacters {
 	knows( entity: EntityState ): boolean | undefined;
 	itemType( refObjId: number ): number | undefined;
 	dressed( gid: number ): boolean;
+	glows( gid: number ): boolean;
+	glowing( gid: number ): boolean;
 	linkedRide( entity: EntityState ): number | null | undefined;
 	error(): string | null | undefined;
 }
@@ -157,10 +176,10 @@ The request's model as a world entity at the origin, facing its native
 front: the monster, or a look's body before it is dressed.
 ================
 */
-function viewerEntity( request: ViewerRequest | null ): EntityState {
+function viewerEntity( request: ViewerRequest | null, gid = VIEWER_GID ): EntityState {
 	const refObjId = request?.kind === "monster" ? request.refObjId : request?.look.bodyRefObjId ?? 0;
 	const kind = request?.kind === "look" ? "player" : "monster";
-	return { gid: VIEWER_GID, refObjId, kind, regionId: 0, x: 0, y: 0, z: 0, heading: 0, name: "" };
+	return { gid, refObjId, kind, regionId: 0, x: 0, y: 0, z: 0, heading: 0, name: "" };
 }
 
 /*
@@ -277,14 +296,26 @@ owners. A look whose body or items the catalogue lacks fails
 export function createViewer( host: ViewerHost ) {
 	// settle is the one way out of the still promise: a PNG or a reason.
 	let settle: ( outcome: { png: string; } | { reason: ViewerReason; stage: ViewerStage; } ) => void = () => {};
-	window.__viewerStill = new Promise<string>( ( resolve, reject ) => {
-		settle = outcome =>
-			"png" in outcome ?
-				resolve( outcome.png ) :
-				reject( Error( outcome.reason, { cause: { stage: outcome.stage } } ) );
-	} );
-	// An unawaited rejection is still reported through the message.
-	window.__viewerStill.catch( () => {} );
+	/*
+	================
+	armStill
+
+	A new still promise for the model about to draw.
+	================
+	*/
+	const armStill = () => {
+		const still = new Promise<string>( ( resolve, reject ) => {
+			settle = outcome =>
+				"png" in outcome ?
+					resolve( outcome.png ) :
+					reject( Error( outcome.reason, { cause: { stage: outcome.stage } } ) );
+		} );
+		// An unawaited rejection is still reported through the message.
+		still.catch( () => {} );
+		window.__viewerStill = still;
+		return still;
+	};
+	armStill();
 	let request: ViewerRequest | null = null, failure: ViewerReason | null = null;
 	try {
 		request = parseViewerRequest( host.search );
@@ -300,6 +331,8 @@ export function createViewer( host: ViewerHost ) {
 	// dresses it once the catalogue can type the items.
 	let entity = viewerEntity( request ), entities = [ entity ], dressed = request?.kind !== "look";
 	let last = -1, elapsed = 0, revision = 0, settled = 0, reading = false, finished = false;
+	// When the framed doll began waiting for its glows, and when they all drew.
+	let glowWaitAt = -1, glowingAt = -1;
 	let camera: WorldCamera | null = null;
 	// The interactive view: the model's turn and the camera's zoom, whether
 	// they changed since the last picture, and the drag in progress.
@@ -345,6 +378,50 @@ export function createViewer( host: ViewerHost ) {
 		if ( request?.still ) post( { type: "viewer-still", png } );
 		settle( { png } );
 	};
+	/*
+	================
+	next
+
+	A batch still's next monster: the drawn one leaves, the next spawns in
+	its place, and its own still promise is returned. The runtime's loop is
+	idle between monsters; this wakes it.
+	================
+	*/
+	const next = ( refObjId: number ): Promise<string> => {
+		if ( !finished || !Number.isInteger( refObjId ) || refObjId < 1 || refObjId > 0xffffffff ) {
+			return Promise.reject( viewerError( "bad-request" ) );
+		}
+		const still = armStill();
+		const gid = entity.gid + 1;
+		host.characters.receiveLifecycle( [ { kind: "despawn", gid: entity.gid } ] );
+		entity = viewerEntity( { kind: "monster", refObjId, still: true, size: viewport.width, batch: true }, gid );
+		entities = [ entity ];
+		last = -1;
+		elapsed = 0;
+		settled = 0;
+		// The glow wait is the new monster's own (8EA960's glows are per doll).
+		glowWaitAt = -1;
+		glowingAt = -1;
+		reading = false;
+		finished = false;
+		camera = null;
+		box = null;
+		framing = true;
+		fitting = { widened: 0, refits: 0 };
+		host.characters.receiveLifecycle( [ { kind: "spawn", entity } ] );
+		host.wake();
+		return still;
+	};
+	if ( request?.batch ) window.__viewerNext = next;
+	/*
+	================
+	stopped
+
+	What frame() answers once a draw has ended: "done" disposes the owners,
+	except in a batch, which keeps them for the next monster.
+	================
+	*/
+	const stopped = (): ViewerFrame => request?.batch ? "idle" : "done";
 	/*
 	================
 	paint
@@ -441,30 +518,31 @@ export function createViewer( host: ViewerHost ) {
 		================
 		*/
 		frame( now: number ): ViewerFrame {
-			if ( finished && !shown ) return "done";
+			// A batch keeps its owners for the next monster (window.__viewerNext).
+			if ( finished && !shown ) return stopped();
 			elapsed += last < 0 ? 0 : Math.min( Math.max( now - last, 0 ), MAX_FRAME_STEP_MS );
 			last = now;
 			if ( !finished && elapsed > VIEWER_TIMEOUT_MS ) {
 				fail( "timeout" );
-				return "done";
+				return stopped();
 			}
 			// A still keeps the loop until it is settled; the interactive view
 			// waits for its readback, which wakes it on a change.
 			if ( reading ) return request?.still ? "draw" : "idle";
 			if ( host.renderer.phase() === "failed" ) {
 				fail( "render" );
-				return "done";
+				return stopped();
 			}
 			const known = host.characters.knows( entity );
 			if ( known === false ) {
 				fail( request?.kind === "look" ? "bad-request" : "unknown-monster" );
-				return "done";
+				return stopped();
 			}
 			if ( !dressed && known && request?.kind === "look" ) {
 				const worn = dressedEntity( entity, request.look, refObjId => host.characters.itemType( refObjId ) );
 				if ( !worn ) {
 					fail( "bad-request" );
-					return "done";
+					return stopped();
 				}
 				entity = worn;
 				entities = [ entity ];
@@ -472,17 +550,17 @@ export function createViewer( host: ViewerHost ) {
 			}
 			if ( host.characters.error() ) {
 				fail( "asset-load" );
-				return "done";
+				return stopped();
 			}
 			const seconds = elapsed / 1000;
 			host.characters.step( entities, null, seconds );
 			// A riding unique waits for its ride, which the doll draws with it.
 			const ride = host.characters.linkedRide( entity );
 			if (
-				!camera && dressed && ride !== null && host.characters.ready( VIEWER_GID ) &&
-				host.characters.dressed( VIEWER_GID )
+				!camera && dressed && ride !== null && host.characters.ready( entity.gid ) &&
+				host.characters.dressed( entity.gid )
 			) {
-				const rider = host.renderer.characterBounds?.( VIEWER_GID ),
+				const rider = host.renderer.characterBounds?.( entity.gid ),
 					mount = ride === undefined ? null : host.renderer.characterBounds?.( ride ) ?? null;
 				const bounds = rider && (ride === undefined ? rider : mount && mountedBounds( rider, mount ));
 				// The doll turns the model by pi about y (portrait.ts previewYaw of
@@ -495,7 +573,7 @@ export function createViewer( host: ViewerHost ) {
 			if ( camera ) {
 				host.renderer.setUi(
 					dollScene( ++revision, viewport.width, viewport.height, {
-						gid: VIEWER_GID,
+						gid: entity.gid,
 						yaw,
 						camera: zoomed( camera, zoom ),
 						mount: true
@@ -503,7 +581,16 @@ export function createViewer( host: ViewerHost ) {
 				);
 			}
 			host.renderer.frame( viewport, seconds );
-			if ( !camera || ++settled < SETTLE_FRAMES ) return "draw";
+			if ( !camera ) return "draw";
+			// A doll with effect particles (a SoX glow, 8EA960) settles once they
+			// draw and have run GLOW_WARMUP_MS, or after GLOW_WAIT_MS without them.
+			if ( host.characters.glows( entity.gid ) ) {
+				if ( glowWaitAt < 0 ) glowWaitAt = elapsed;
+				if ( glowingAt < 0 && host.characters.glowing( entity.gid ) ) glowingAt = elapsed;
+				const warmed = glowingAt >= 0 && elapsed - glowingAt >= GLOW_WARMUP_MS;
+				if ( !warmed && elapsed - glowWaitAt < GLOW_WAIT_MS ) return "draw";
+			}
+			if ( ++settled < SETTLE_FRAMES ) return "draw";
 			changed = false;
 			reading = true;
 			host.renderer.readDoll!().then( still => {
@@ -537,8 +624,9 @@ export function createViewer( host: ViewerHost ) {
 					shown = true;
 					void encodePng( still ).then( succeed );
 				}
-				// A change while the readback ran draws again.
-				if ( changed ) host.wake();
+				// A change while the readback ran draws again, and a doll with
+				// effect particles keeps animating them.
+				if ( changed || host.characters.glows( entity.gid ) ) host.wake();
 			} ).catch( () => fail( "render" ) );
 			return request?.still ? "draw" : "idle";
 		}

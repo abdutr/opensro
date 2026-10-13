@@ -9,10 +9,9 @@ runtime.go - the action runtime: player commands across every gameplay lane
 package action
 
 import (
-	"math"
 	"opensro.online/server/internal/domain"
 	"opensro.online/server/internal/game/caravan"
-	"strconv"
+	"opensro.online/server/internal/game/world/calendar"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +31,7 @@ import (
 	"opensro.online/server/internal/game/linkedpulse"
 	"opensro.online/server/internal/game/pk"
 	"opensro.online/server/internal/game/progression"
+	"opensro.online/server/internal/game/social/chatfeed"
 	"opensro.online/server/internal/game/social/guildwar"
 	"opensro.online/server/internal/game/social/union"
 	"opensro.online/server/internal/game/world/fortress"
@@ -58,8 +58,18 @@ type Runtime struct {
 	aggressionActors sync.Map // scheduled counters; character owns aggression entries
 	// jobWeeks holds, per division, the last week JobWeekTick handed to the
 	// store (jobrank.go).
-	jobWeeks    sync.Map
-	BerserkRoll combat.Roll32767
+	jobWeeks sync.Map
+	// gmSpeeds holds each GM's /SETSPEED percent (gmspeed.go), session only.
+	gmSpeeds sync.Map
+	// GMSetSpeed admits /SETSPEED (port-only, SRO_GM_SETSPEED; off is native).
+	GMSetSpeed bool
+	// TeamDeathTownRule sends a team death to the town rule (port-only,
+	// SRO_TEAM_DEATH_REVIVE off; the zero value is native, teamdeath.go).
+	TeamDeathTownRule bool
+	// CaravanBanditCap caps the bandits per ambush (port-only,
+	// SRO_CARAVAN_BANDIT_CAP; 0 is native, uncapped).
+	CaravanBanditCap int
+	BerserkRoll      combat.Roll32767
 	// WearRoll is CGObjPC_RollEquipmentWear's rand(); nil is the secure roll.
 	WearRoll combat.Roll32767
 	// RevivalRoll is 51D260's rand() for a fortress revival gate; nil is the
@@ -293,6 +303,19 @@ type Runtime struct {
 	// 0 or 1 is native; the closed-beta growth switch raises it.
 	RareRate int
 
+	// SealRates multiplies each rare seal's chance by degree and seal on top
+	// of RareRate (port-only, not native, beta balance; owner 2026-10-13).
+	// The zero value is off.
+	SealRates progression.SealRates
+
+	// ElixirDrops keeps every elixir out of monster drops (port-only, not
+	// native, beta balance; owner 2026-10-13). The zero value is native.
+	ElixirDrops progression.ElixirDrops
+
+	// ShopOnly keeps degree-9 alchemy goods out of every drop (port-only,
+	// not native, beta balance; owner 2026-10-13). The zero value is off.
+	ShopOnly progression.ShopOnlyDegree9
+
 	// PetExpPace is the closed-beta growth multiplier for an attack pet's
 	// EXP gain, read at the owner's level (progression GrowthRates.ExpPace,
 	// petgrowth.go). Nil is native; the growth switch sets it (port-only).
@@ -304,9 +327,12 @@ type Runtime struct {
 	PartyShareFloor bool
 
 	// Now abstracts the clock for deterministic tests.
-	Now         func() time.Time
-	departureMu sync.Mutex
-	departures  map[uint64]pendingDeparture
+	Now func() time.Time
+	// SetWorldHour moves the process world clock (/SETTIME); tests inject
+	// it so the shared calendar stays put.
+	SetWorldHour func(hour uint8) calendar.Value
+	departureMu  sync.Mutex
+	departures   map[uint64]pendingDeparture
 
 	// UpdateQuestInventory is the quest lane's collect-objective updater. It
 	// runs inside the item authority transaction so inventory and derived
@@ -415,6 +441,11 @@ type Runtime struct {
 	// burst after the authority door closes. Pending pickups use captured
 	// delivery when configured; detached runtimes retain this actor fallback.
 	PushCharacterFrames func(divisionID, characterName string, frames []wire.Frame)
+	// PushGuildFrames delivers one member's guild frames: its 0x3B29 deltas
+	// only to a session holding guildID's block, every other frame as
+	// PushCharacterFrames would (guild/baseline.go). Nil falls back to
+	// PushCharacterFrames.
+	PushGuildFrames func(divisionID, characterName string, guildID int64, frames []wire.Frame)
 	// SilkWallet credits operator and GM silk grants (operator_silk.go);
 	// RecordSilkGrant journals each committed grant.
 	SilkWallet      SilkWallet
@@ -450,6 +481,11 @@ type Runtime struct {
 	// chat restriction, sending its notice when it does (4F0A00). Nil means
 	// no session can be restricted.
 	ChatRestricted func(divisionID, characterName string) bool
+
+	// PublicChat is the website's public chat transcript (chatfeed,
+	// port-only): the Global Chatting line enters it, a GM ban purges the
+	// banned character's lines. Nil keeps both in-game only.
+	PublicChat *chatfeed.Feed
 
 	// PushMonsterCast publishes prepared-cast results before the division
 	// transaction ends. It must only enqueue (never perform network I/O).
@@ -563,6 +599,7 @@ func NewRuntime(deps Dependencies, monsters *simulation.MonsterState) *Runtime {
 		CaravanRoll:        combat.SecureRoll32767,
 		caravans:           caravan.NewRegistry(),
 		Now:                time.Now,
+		SetWorldHour:       calendar.SetHour,
 		basicAttackIntents: make(map[string]basicAttackIntent),
 		resurrections:      resurrectionOffers{byTarget: make(map[string]resurrectionOffer)},
 		Exchanges:          exchange.New(),
@@ -629,186 +666,6 @@ func failureResult(errorCode uint8) OpResult {
 			},
 		},
 	}
-}
-
-// ---- Character row bridging ----
-
-/*
-==================
-invItemsFromBag
-
-invItemsFromBag arms a character's persisted rows, sockets and bag up to
-its capacity byte, for the inventory engine: the decimal-string variance
-becomes a real u64 and a zero stack reads as one unit, both exactly like
-the fixture's wire re-arming.
-==================
-*/
-func invItemsFromBag(c *enterworld.Character) []inventory.Item {
-	return invItemsFromRowsWithin(c.MissionInventory, int64(inventory.BagEnd(c)))
-}
-
-/*
-==================
-bagOf
-
-The character's inventory: its rows inside a bag of its own capacity.
-==================
-*/
-func bagOf(c *enterworld.Character) *inventory.Inventory {
-	return inventory.New(invItemsFromBag(c), inventory.BagEnd(c))
-}
-
-/*
-==================
-invItemsFromRowsWithin
-==================
-*/
-func invItemsFromRowsWithin(rows []enterworld.InventoryRow, slotEnd int64) []inventory.Item {
-	out := make([]inventory.Item, 0, len(rows))
-
-	for _, row := range rows {
-		if row.Slot < 0 || row.Slot >= slotEnd {
-			continue
-		}
-
-		variance, err := strconv.ParseUint(row.VarianceBits, 10, 64)
-		if err != nil {
-			variance = 0
-		}
-
-		quantity := row.StackCount
-		if quantity < 1 {
-			quantity = 1
-		}
-
-		if quantity > 0xFFFF {
-			quantity = 0xFFFF
-		}
-
-		out = append(out, inventory.Item{
-			RecordID:          row.RecordID,
-			TradeOwner:        row.TradeOwner,
-			Slot:              uint8(row.Slot),
-			RefObjID:          row.RefObjID,
-			Codename:          row.Codename,
-			TypeFlags:         row.TypeFlags,
-			Plus:              uint8(clampInt64(row.Plus, 0, 0xFF)),
-			VarianceBits:      variance,
-			Durability:        uint32(clampInt64(row.Durability, 0, 0xFFFFFFFF)),
-			Quantity:          uint16(quantity),
-			MagicOptions:      append([]uint64(nil), row.MagicOptions...),
-			TransformRefObjID: row.TransformRefObjID, Summon: domain.CloneCOS(row.Summon),
-		})
-	}
-
-	return out
-}
-
-/*
-==================
-rowsFromInvItems
-
-rowsFromInvItems persists the engine rows back onto the character record
-(variance back to its decimal-string form).
-==================
-*/
-func rowsFromInvItems(items []inventory.Item) []enterworld.InventoryRow {
-	out := make([]enterworld.InventoryRow, 0, len(items))
-
-	for _, item := range items {
-		out = append(out, enterworld.InventoryRow{
-			RecordID:          item.RecordID,
-			TradeOwner:        item.TradeOwner,
-			Slot:              int64(item.Slot),
-			RefObjID:          item.RefObjID,
-			Codename:          item.Codename,
-			TypeFlags:         item.TypeFlags,
-			Plus:              int64(item.Plus),
-			VarianceBits:      strconv.FormatUint(item.VarianceBits, 10),
-			Durability:        int64(item.Durability),
-			StackCount:        int64(item.Quantity),
-			MagicOptions:      append([]uint64(nil), item.MagicOptions...),
-			TransformRefObjID: item.TransformRefObjID, Summon: domain.CloneCOS(item.Summon),
-		})
-	}
-
-	return out
-}
-
-/*
-==================
-clampInt64
-==================
-*/
-func clampInt64(value, min, max int64) int64 {
-	if value < min {
-		return min
-	}
-
-	if value > max {
-		return max
-	}
-
-	return value
-}
-
-/*
-==================
-maxStackFor
-
-maxStackFor ports missionItemMaxStack: the itemdata MaxStack column, gated
-on the stackable-ETC class. A nil item source behaves like a missing row -
-cap 1, the swap leg - which is the documented dev-mode degradation until
-the itemdata loader lands.
-==================
-*/
-func (rt *Runtime) maxStackFor(typeFlags uint16, codename string) uint16 {
-	if !inventory.IsEtcStackableTypeFlags(typeFlags) {
-		return 1
-	}
-
-	if rt.deps.ItemReferences() == nil {
-		return 1
-	}
-
-	ref, ok := rt.deps.ItemReferences().ItemRefByCodename(codename)
-	if !ok || ref == nil || len(ref.NativeFields) == 0 {
-		return 1
-	}
-
-	maxStack, ok := ref.NativeFields.Lookup("maxStack")
-	if !ok || math.IsNaN(maxStack) || math.IsInf(maxStack, 0) {
-		return 1
-	}
-
-	return uint16(clampInt64(int64(maxStack), 1, 0xFFFF))
-}
-
-/*
-==================
-goldOf
-==================
-*/
-func goldOf(character *enterworld.Character) uint64 {
-	if character == nil || character.Gold == nil || *character.Gold < 0 {
-		return 0
-	}
-
-	return uint64(*character.Gold)
-}
-
-/*
-==================
-setGold
-==================
-*/
-func setGold(character *enterworld.Character, balance uint64) {
-	value := int64(math.MaxInt64)
-	if balance <= uint64(math.MaxInt64) {
-		value = int64(balance)
-	}
-
-	character.Gold = &value
 }
 
 /*

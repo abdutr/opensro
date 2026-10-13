@@ -72,7 +72,7 @@ const families = [
 		"Premium and specialty trade",
 		/premium|specialty/i,
 		"foundation/gameplay/count-job.ts; runtime/ui/hud/specialty-deal-hud.ts",
-		"Real package references/icons, expiration, spent reply and reverse return point. Transport trading is blocked: production Shop and COS frames both publish close, reproduced before opening and through visible menu/reply."
+		"Real package references/icons, expiration, spent reply and reverse return point. Specialty quantity, Shop and COS inventory now mount with distinct production close identities. Live trade settlement and visible menu/request/reply coverage remain unverified."
 	],
 	[
 		"stall",

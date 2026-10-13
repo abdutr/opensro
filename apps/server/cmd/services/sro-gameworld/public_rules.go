@@ -13,8 +13,11 @@ clip telemetry, data paths) are not player-facing and are left out.
 package main
 
 import (
+	"fmt"
+
 	"opensro.online/server/internal/agent/publicstats"
 	"opensro.online/server/internal/game/action"
+	"opensro.online/server/internal/game/caravan"
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/alchemy"
@@ -36,6 +39,10 @@ func publicRules() publicstats.RulesResponse {
 	silkRate, _ := action.BetaSilkFromEnv()
 	stackSizes, _ := enterworld.StackSizesFromEnv()
 	alchemyRates, _ := alchemy.ReinforceRatesFromEnv()
+	alchemyMaxPlus, _ := alchemy.ReinforceMaxPlusFromEnv()
+	teamDeathRevive, _ := action.TeamDeathReviveFromEnv()
+	noAssimilation, _ := alchemy.NoAssimilationFromEnv()
+	banditCap, _ := caravan.BanditCapFromEnv()
 	dropMix, _ := progression.BetaDropMixFromEnv()
 	return publicstats.RulesResponse{
 		Rules: []publicstats.Rule{
@@ -47,6 +54,18 @@ func publicRules() publicstats.RulesResponse {
 				Native: "Every kind of item drops at the retail rate.",
 				Now:    "Each item kind has its own beta drop rate; by default equipment keeps the raised rate while potions, pills, scrolls, arrows and alchemy materials drop at the retail rate.",
 				Why:    "So raised drops bring gear rather than a floor of potions."},
+			{Flag: progression.EnvBetaSealRates, On: progression.BetaSealRatesFromEnv().Enabled(),
+				Native: "Each Seal of Star, Moon and Sun drops at the rare rate, and degree-9 Star and Moon only from monsters of level 76 to 85.",
+				Now:    "Seals of degrees 1 to 8 drop three times as often; at degree 9 Star drops three times and Moon five times as often, Sun as before, and Star and Moon also from monsters of level 86 to 94.",
+				Why:    "Beta balance, so testers can try seal gear."},
+			{Flag: progression.EnvBetaShopOnlyDegree9, On: progression.BetaShopOnlyDegree9FromEnv().Enabled(),
+				Native: "Monsters drop Lucky Powder, magic stones and attribute stones of every degree.",
+				Now:    "Degree-9 Lucky Powder, magic stones and attribute stones no longer drop; the Jangan shops sell them.",
+				Why:    "Beta balance: the top alchemy degree is bought with gold."},
+			{Flag: progression.EnvElixirDropsOff, On: progression.ElixirDropsFromEnv().Off(),
+				Native: "Monsters drop elixirs.",
+				Now:    "Elixirs no longer drop; the Jangan blacksmith sells them for 1,000,000 gold.",
+				Why:    "Beta balance: gold buys enhancement, so elixirs keep a steady price."},
 			{Flag: action.EnvBetaSilk, On: silkRate > 0,
 				Native: "Silk is bought for the account.",
 				Now:    "Every full hour in the world earns silk, up to a cap.",
@@ -79,6 +98,22 @@ func publicRules() publicstats.RulesResponse {
 				Native: "Each elixir has its own success chance per plus, at least 10%.",
 				Now:    "One gentler table for every elixir: +1 always succeeds, falling to 5% for +11; powders, Luck and premium bonuses still add.",
 				Why:    "Players asked for it; the original rates return with one setting."},
+			{Flag: alchemy.EnvReinforceMaxPlus, On: alchemyMaxPlus > 0,
+				Native: "Items can be reinforced far beyond +11.",
+				Now:    fmt.Sprintf("Reinforcement stops at +%d.", alchemyMaxPlus),
+				Why:    "The success table ends at +11; the cap keeps gear in the balanced range."},
+			{Flag: action.EnvTeamDeathRevive, On: !teamDeathRevive,
+				Native: "A death in a free battle or the arena revives on the spot, at any level.",
+				Now:    "A free-battle or arena death revives in town above level 10, like any other death.",
+				Why:    "A shard setting; the original rule returns with one setting."},
+			{Flag: alchemy.EnvNoAssimilation, On: noAssimilation,
+				Native: "A successful attribute or magic stone can also reroll a white stat or a magic option (assimilation).",
+				Now:    "A successful attribute or magic stone changes only its own stat.",
+				Why:    "Players asked for it; the original rule returns with one setting."},
+			{Flag: caravan.EnvBanditCap, On: banditCap > 0,
+				Native: "A caravan ambush has as many bandits as its cargo's value calls for, with no limit.",
+				Now:    fmt.Sprintf("At most %d bandits per ambush.", banditCap),
+				Why:    "A full load drew dozens of bandits at once; the cap keeps an ambush fightable."},
 		},
 		Deviations: []publicstats.Deviation{
 			{Title: "Storage Ctrl+click",

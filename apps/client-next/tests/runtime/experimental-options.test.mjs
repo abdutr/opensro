@@ -13,7 +13,7 @@ import "../helpers/native-source-loader.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { experimentalOptions, experimentalVideo, renderScales } = await import(
+const { experimentalGameplay, experimentalOptions, experimentalVideo, renderScales } = await import(
 	"../../src/engine/foundation/ui/experimental-options.ts"
 );
 const { createExperimentalHud, EXPERIMENTAL_TABS } = await import(
@@ -28,12 +28,12 @@ const OFF = Object.freeze( {
 	anisotropicFiltering: false,
 	heightFog: false,
 	dynamicSun: false,
-	terrainRelief: false,
-	texturedHorizon: false,
 	floatBloom: false,
 	hdrToneMap: false,
 	sunShadow: false,
-	perPixelLighting: false
+	perPixelLighting: false,
+	predictedRunUp: false,
+	smoothCamera: false
 } );
 
 test("only an explicit boolean enables chat timestamps", () => {
@@ -107,12 +107,11 @@ test("every video stage defaults off and only an explicit true enables it", () =
 		anisotropicFiltering: false,
 		heightFog: false,
 		dynamicSun: false,
-		terrainRelief: false,
-		texturedHorizon: false,
 		floatBloom: false,
 		hdrToneMap: false,
 		sunShadow: false,
-		perPixelLighting: false
+		perPixelLighting: false,
+		smoothCamera: false
 	} );
 	for (
 		const key of [
@@ -120,12 +119,11 @@ test("every video stage defaults off and only an explicit true enables it", () =
 			"anisotropicFiltering",
 			"heightFog",
 			"dynamicSun",
-			"terrainRelief",
-			"texturedHorizon",
 			"floatBloom",
 			"hdrToneMap",
 			"sunShadow",
-			"perPixelLighting"
+			"perPixelLighting",
+			"smoothCamera"
 		]
 	) {
 		assert.equal( experimentalOptions( { [key]: 1 } )[key], false );
@@ -135,12 +133,23 @@ test("every video stage defaults off and only an explicit true enables it", () =
 	}
 });
 
+test("a saved preference holding the retired relief and horizon rows loads cleanly and ignores them", () => {
+	// Both rows were removed at the owner's request (2026-10-11): a browser
+	// that saved them on still loads, the keys are dropped, and the other
+	// stages keep their saved values.
+	const saved = { terrainRelief: true, texturedHorizon: true, heightFog: true, renderScale: 75 };
+	const options = experimentalOptions( saved );
+	assert.deepEqual( options, { ...OFF, heightFog: true, renderScale: 75 } );
+	assert.equal( "terrainRelief" in options, false );
+	assert.equal( "texturedHorizon" in experimentalVideo( options ), false );
+	const ids = /** @type {string[]} */ (EXPERIMENTAL_TABS.flatMap( tab => tab.rows ).map( row => row.key ));
+	assert.ok( !ids.includes( "terrainRelief" ) && !ids.includes( "texturedHorizon" ) );
+});
+
 test("new environment preferences persist only on Confirm and Default remains a draft", () => {
 	for (
 		const key of /** @type {const} */ ([
 			"dynamicSun",
-			"terrainRelief",
-			"texturedHorizon",
 			"floatBloom",
 			"hdrToneMap",
 			"sunShadow",
@@ -177,7 +186,7 @@ Tabs
 test("the window's tabs cover every preference once and Open returns to Image", () => {
 	assert.deepEqual(
 		EXPERIMENTAL_TABS.map( tab => tab.title ),
-		[ "Image", "World", "Lighting", "Chat", "Developer" ]
+		[ "Image", "World", "Lighting", "Game", "Developer" ]
 	);
 	// Lighting keeps the direct-light stages; render scale joins Image without
 	// changing the indices used to reopen the existing tabs.
@@ -281,4 +290,20 @@ test("render scale selections remain drafts until Confirm and reject unsupported
 		hud.reset();
 		hud.confirm();
 	}
+});
+
+/*
+================
+Gameplay rows
+================
+*/
+test("the predicted run-up defaults off and reaches only the worker's slice", () => {
+	// The native press (6FCD50) never walks before the server answers.
+	assert.deepEqual( experimentalGameplay( experimentalOptions() ), { predictedRunUp: false } );
+	for ( const value of [ 1, "true", null, {} ] ) {
+		assert.equal( experimentalOptions( { predictedRunUp: value } ).predictedRunUp, false );
+	}
+	const on = experimentalOptions( { predictedRunUp: true } );
+	assert.deepEqual( experimentalGameplay( on ), { predictedRunUp: true } );
+	assert.equal( "predictedRunUp" in experimentalVideo( on ), false );
 });

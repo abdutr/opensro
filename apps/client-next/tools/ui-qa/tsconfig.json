@@ -1,5 +1,0 @@
-{
-  "extends": "../../tsconfig.json",
-  "compilerOptions": { "tsBuildInfoFile": "../../temp/cache/tsc/ui-qa.tsbuildinfo" },
-  "include": ["./*.ts", "../../src/**/*.ts", "../types/**/*.d.ts"]
-}

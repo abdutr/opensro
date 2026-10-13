@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"opensro.online/server/internal/domain"
+	"opensro.online/server/internal/game/social/chatfeed"
 	"opensro.online/server/internal/game/world/simulation"
 	"opensro.online/server/internal/transport"
 )
@@ -59,6 +60,7 @@ const (
 	boardsMaxAge     = 60 * time.Second
 	charactersMaxAge = 30 * time.Second
 	rulesMaxAge      = 300 * time.Second
+	chatMaxAge       = 5 * time.Second
 )
 
 // snapshotMaxAge is how long the shared character and kill copies serve
@@ -116,8 +118,10 @@ type Sources struct {
 	// SetHidden commits a character's privacy flag when it belongs to the
 	// account, else returns ErrNotOwned. WriteToken guards it (privacy.go);
 	// either one missing leaves the write unserved.
-	SetHidden  func(accountID, name string, hidden bool) error
-	WriteToken string
+	SetHidden func(accountID, name string, hidden bool) error
+	// SetGearHidden commits the "hide my gear" choice the same way.
+	SetGearHidden func(accountID, name string, hidden bool) error
+	WriteToken    string
 	// Sample reads the shard's online count and the hub's cumulative
 	// counters for P7 (status.go); nil leaves the status figures zero.
 	Sample func() (online int, metrics transport.Metrics)
@@ -130,6 +134,9 @@ type Sources struct {
 	ExpRequired func(level int64) (int64, bool)
 	// Schedule lists the events this server runs at now (P8).
 	Schedule func(now time.Time) []ScheduledEvent
+	// Chat returns the shard's public chat transcript, oldest first, with
+	// muted authors already left out (chat.go); nil serves no lines.
+	Chat func() []chatfeed.Line
 }
 
 /*
@@ -225,6 +232,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /public/v1/schema", s.cached(rulesMaxAge, s.schema))
 	mux.HandleFunc("GET /public/v1/status", s.cached(uniquesMaxAge, s.serverStatus))
 	mux.HandleFunc("GET /public/v1/schedule", s.cached(boardsMaxAge, s.schedule))
+	mux.HandleFunc("GET /public/v1/chat", s.cached(chatMaxAge, s.chat))
 	s.installPrivacy(mux)
 	return mux
 }

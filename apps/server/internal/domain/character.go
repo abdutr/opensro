@@ -212,7 +212,12 @@ type Character struct {
 	// LastExpLoss is CGObjPC+0x1CE0, the size of the last negative EXP
 	// change (CGObjPC_ApplyExpDelta 4E5710). Resurrection returns a percent
 	// of it; every revival clears it.
-	LastExpLoss      int64  `json:"-"`
+	LastExpLoss int64 `json:"-"`
+	// DeathKind is CGObjPC+0x1CB4, the last death's kind (pk.DeathKind):
+	// 4E6EC0 records it, the 0x37CE notice carries it, and the rebirth
+	// (50FEE0) revives a team death where it fell. Every revival clears it
+	// (CGObjPC_TeleportToTown 4DF2EE). Runtime-only, as natively.
+	DeathKind        uint8  `json:"-"`
 	NativeBodyStatus uint8  `json:"-"`
 	BodyStatusOwner  uint64 `json:"-"`
 	// TransformRefObjID is the transform block (CGObjPC+0x21A0): the monster
@@ -295,6 +300,11 @@ type Character struct {
 	// API (port-only, not native: the opensro.online privacy choice). Its
 	// kills read as "a hunter" there and its profile answers 404.
 	PublicHidden bool `json:"publicHidden,omitempty"`
+	// PublicGearHidden keeps the character's worn gear details (white-stat
+	// rolls, blue stats, durability) off its public profile while the
+	// profile itself stays visible (port-only, not native: the
+	// opensro.online "hide my gear" choice, schema 23).
+	PublicGearHidden bool `json:"publicGearHidden,omitempty"`
 	// LevelReachedAt is when the character first reached each milestone level
 	// (PublicLevelMilestones), in Unix milliseconds, for the site's
 	// world-firsts (port-only, not native).

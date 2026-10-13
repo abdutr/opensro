@@ -46,6 +46,8 @@
 				"knows",
 				"itemType",
 				"dressed",
+				"glows",
+				"glowing",
 				"linkedRide"
 			]
 		},
@@ -130,9 +132,8 @@
 			"functions": [
 				"upload",
 				"release",
-				"writeVertices",
-				"updateIndices",
-				"updatePositions"
+				"streamVertices",
+				"updateIndices"
 			]
 		},
 		{
@@ -404,20 +405,6 @@
 			"provider": "src/engine/runtime/world/world.ts",
 			"functions": [
 				"soundSurface"
-			]
-		},
-		{
-			"consumer": "src/engine/runtime/runtime.ts",
-			"provider": "src/engine/runtime/world/world.ts",
-			"functions": [
-				"setTerrainNormals"
-			]
-		},
-		{
-			"consumer": "src/engine/runtime/runtime.ts",
-			"provider": "src/engine/runtime/frontend/stage/stage.ts",
-			"functions": [
-				"setTerrainNormals"
 			]
 		},
 		{
@@ -1526,7 +1513,8 @@
 			"provider": "src/engine/runtime/simulation/worker/session/world/gameplay/gameplay.ts",
 			"functions": [
 				"options",
-				"chatBlocks"
+				"chatBlocks",
+				"experimental"
 			]
 		},
 		{
@@ -3340,6 +3328,13 @@
 		},
 		{
 			"file": "src/engine/runtime/characters/actor-motion.ts",
+			"expression": "posePresentation.carry",
+			"function": "present",
+			"kind": "callback",
+			"reason": "Characters pose owner takes back the drawn pose a released WAIT hold showed, so its track recovers from it instead of jumping."
+		},
+		{
+			"file": "src/engine/runtime/characters/actor-motion.ts",
 			"expression": "footContact",
 			"function": "present",
 			"kind": "callback",
@@ -3780,7 +3775,7 @@
 		{
 			"file": "src/engine/runtime/runtime.ts",
 			"function": "frame",
-			"sourceSha256": "d4409c4c86718f48c6536f61d8fad6852848bb531de4d94e461d2241ba646f94",
+			"sourceSha256": "98291008053e8225b8ca2ece5e7a17f893fdb2275124d8fd6789ebaee4ee1819",
 			"reason": "AEBD90 synchronously waits for visibility before AEC180 advances EFP ticks. The browser yields at the GPU readback barrier; the runtime retains the current frame and schedules the next RAF only after completion. Ordinary frames do not await a readback. Device disposal cancels pending mapping.",
 			"evidence": "tests/fixtures/native/bsr-query-native.json",
 			"nativeFunction": 11451792,

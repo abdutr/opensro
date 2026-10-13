@@ -51,6 +51,9 @@ const (
 	// u8 count, u8 type (CHAMP 1, GIANT 4, NORMAL 0, else the record's +0xA0).
 	SubLoadMonster uint8 = 0x06
 	SubWarp        uint8 = 0x10
+	// SubSetTime: /SETTIME hour - subcmd + u8 hour 0..23 (509CF0 clamps;
+	// 51DE90 case 8 relays it to the shard manager as SetGameTime).
+	SubSetTime uint8 = 0x0A
 	// SubWorldStatus: /WORLDSTATUS - subcmd alone (51DE90 case 3).
 	SubWorldStatus uint8 = 0x04
 	// SubBan: /BAN - subcmd + ANSI name (51DE90 case 0xA).
@@ -77,6 +80,9 @@ const (
 	// native): subcmd, u16 len + ANSI name, u32 amount. The native table
 	// ends at 0x30, so 0xF0 cannot collide with a retail command.
 	SubGrantSilk uint8 = 0xF0
+	// SubSetSpeed is the port's /SETSPEED percent (GM tooling, not native,
+	// action/gmspeed.go): subcmd, u16 percent of the effective speed.
+	SubSetSpeed uint8 = 0xF1
 )
 
 // Ack result bytes (sub_751ec0 @0x00751f08 result == 1 / @0x00752111
@@ -109,6 +115,8 @@ type Request struct {
 	HasName bool
 	// Silk is /SILK's amount.
 	Silk uint32
+	// SpeedPercent is /SETSPEED's percent of the effective speed.
+	SpeedPercent uint16
 }
 
 // nameSubcommands are the subcommands whose payload is a single sized ANSI
@@ -150,6 +158,13 @@ func DecodeGmCommand(payload []byte) (Request, error) {
 		request.Destination = p
 		return request, nil
 	}
+	if subcmd == SubSetSpeed {
+		if len(payload) != 3 {
+			return Request{}, fmt.Errorf("gmcommand: SETSPEED requires three bytes")
+		}
+		request.SpeedPercent, err = reader.U16()
+		return request, err
+	}
 	if subcmd == SubMakeItem {
 		if len(payload) != 6 {
 			return Request{}, fmt.Errorf("gmcommand: MAKEITEM requires six bytes")
@@ -160,6 +175,13 @@ func DecodeGmCommand(payload []byte) (Request, error) {
 		}
 		request.Amount, err = reader.U8()
 		return request, err
+	}
+	if subcmd == SubSetTime {
+		if len(payload) != 2 || payload[1] >= 24 {
+			return Request{}, fmt.Errorf("gmcommand: SETTIME requires one hour byte below 24")
+		}
+		request.Amount = payload[1]
+		return request, nil
 	}
 	if subcmd == SubLoadMonster {
 		// 50A53E..50A57E: subcmd, u32 refObjID, u8 count, u8 type.

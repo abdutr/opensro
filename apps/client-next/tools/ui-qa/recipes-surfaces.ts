@@ -9,6 +9,7 @@ need representative operation, not every possible server outcome.
 import type { ExtendedRecipe, RecipeContext } from "./extended";
 import { herb, npc, openPanel, press } from "./recipe-input";
 import { OPENERS, SERVICE_WINDOWS } from "../../tests/helpers/ui-entry-recipes.mjs";
+import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
 
 /*
 ================
@@ -42,11 +43,22 @@ buffs
 */
 function buffs( context: RecipeContext ) {
 	const game = context.state.gameplay;
-	game.skillCatalog = [
-		{ id: 7, name: "Buff", icon: herb.icon, buffCancel: "direct" },
-		{ id: 8, name: "Scroll", icon: herb.icon, buffCancel: "confirm", buffSecondary: true }
+	const metadata = {
+		group: 1,
+		level: 1,
+		spCost: 0,
+		trainable: false,
+		targetRequired: false,
+		cooldownMs: 0,
+		masteries: [],
+		prerequisites: []
+	};
+	const skills = [
+		{ ...metadata, id: 7, name: "Buff", icon: herb.icon, buffCancel: "direct" as const },
+		{ ...metadata, id: 8, name: "Scroll", icon: herb.icon, buffCancel: "confirm" as const, buffSecondary: true }
 	];
-	game.buffSlots = game.skillCatalog.map( ( row: any, index: number ) => ({
+	game.skillCatalog = skills;
+	game.buffSlots = skills.map( ( row, index ) => ({
 		state: "active",
 		serial: index + 1,
 		secondary: false,
@@ -107,8 +119,10 @@ export const surfaceRecipes: readonly ExtendedRecipe[] = [
 		controls: [ "storage-slot:0", "storage-gold" ],
 		async open( context ) {
 			await OPENERS.Storage!( context, context.step );
+			const storage = context.state.gameplay.storage;
+			if ( !storage ) throw Error( "Storage recipe requires an open room" );
 			context.state.gameplay.storage = {
-				...context.state.gameplay.storage,
+				...storage,
 				gold: "20000",
 				items: [ { ...herb, slot: 0 } ]
 			};
@@ -133,8 +147,10 @@ export const surfaceRecipes: readonly ExtendedRecipe[] = [
 		controls: [ "exchange-my:0", "exchange-their:0", "exchange-close" ],
 		async open( context ) {
 			await SERVICE_WINDOWS.Exchange!( context, context.step );
+			const exchange = context.state.gameplay.exchange;
+			if ( !exchange ) throw Error( "Exchange recipe requires its publication" );
 			context.state.gameplay.exchange = {
-				...context.state.gameplay.exchange,
+				...exchange,
 				partner: 3,
 				own: [ { slot: 0, bagSlot: 14, item: { ...herb } } ],
 				theirs: [ { slot: 0, item: { ...herb } } ],
@@ -216,7 +232,7 @@ export const surfaceRecipes: readonly ExtendedRecipe[] = [
 			npc( context, 2, "General Sonhyeon" );
 			context.state.gameplay.npcConversation = {
 				phase: "ready",
-				gid: 99,
+				gid: npcGid( 99 ),
 				dialogueRevision: 2,
 				dialogue: {
 					kind: mode === "choices" ? 4 : 3,

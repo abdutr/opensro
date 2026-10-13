@@ -21,6 +21,8 @@ const ACTION_STALL_NETWORK = 1013;
 // 5A2890: a title CStringCheck_IsTextAllowed refuses raises 0x0A/0x38.
 const STALL_TITLE_REFUSED = "UIIT_MSG_FLEAMARKET_ERR_NOT_ALLOWED_FMARKETNAME";
 const STALL_PROMPT_TEXT = "stall-prompt-text";
+// pk.DeathTeam, the 0x37CE mode that labels the death box "standing" (52FF33).
+const TEAM_DEATH_MODE = 2;
 // The overhead job mark sits 4 px past the name board, which reaches 1.5 px
 // past the text (the beginner mark mirrors it at -21.5 = -20 - 1.5).
 const JOB_MARK_GAP = 5.5;
@@ -308,7 +310,9 @@ import {
 	cosStanceToggle,
 	cosStatusChrome,
 	cosStatusRatios,
-	cosStatusRect
+	cosStatusRect,
+	cosStatusRowBottom,
+	COS_STATUS_OUTLINE_MARGIN
 } from "@/engine/foundation/ui/cos-command";
 import { questObjectivePresentation } from "@/engine/foundation/ui/quest-presentation";
 import { uniqueBannerQuads } from "@/engine/foundation/ui/unique-banner";
@@ -319,7 +323,7 @@ import {
 	isMainPopupPage,
 	type MainPopupPage
 } from "@/engine/foundation/ui/main-popup";
-import { isUiPanel, type UiPanel } from "@/engine/foundation/ui/panels";
+import { closedPanel, isUiPanel, panelCloseId, type PanelCloseId, type UiPanel } from "@/engine/foundation/ui/panels";
 import { moneyPresentation } from "@/engine/foundation/ui/money-presentation";
 import { groundItemName, groundItemNameVisible } from "@/engine/foundation/ui/ground-item-label";
 import {
@@ -495,7 +499,7 @@ import { academyLayout } from "@/engine/foundation/ui/academy-layout";
 import { createGuideResources } from "./guide/resources";
 import { automaticGuide } from "@/engine/foundation/gameplay/guide";
 import {
-	missionLoadingAssets,
+	loadingArtDemand,
 	missionLoadingQuads,
 	loadingScreenQuads,
 	regionLoadingBackground,
@@ -573,6 +577,12 @@ import type { UiView, UiEvent, UiRect, UiQuad, UiControl, UiSemantics, UiScene }
 import type { EntityState } from "@/engine/contracts/world";
 import type { UiTexture } from "@/engine/contracts/texture";
 
+// A window frame's close control is named after its window: a panel's own
+// panelCloseId, or a service window's "<window>-close" (a stall visitor
+// leaves). A bare "close" is not one: shared by every frame, it was unique
+// only while a single window showed.
+type CloseControlId = PanelCloseId | `${string}-close` | "stall-leave";
+
 // CIFCosInfo_RefreshSatietyDependentStats (6A4600) font colour 0xFF999999.
 const COS_LOW_SATIETY = [ 0x99 / 255, 0x99 / 255, 0x99 / 255, 1 ] as const;
 // No video option combo is open (slot -1 is the screen-size combo).
@@ -595,7 +605,6 @@ const BUG_REPORTS_UNAVAILABLE = "Connecting to the bug reporter; the report wind
 // Port-only report/diagnostic tools: paired with --hud-tools-height in loading.css.
 const HUD_TOOLS_HEIGHT = 18;
 const HUD_TOOLS_GAP = 8;
-const COS_STATUS_OUTLINE_MARGIN = 11;
 // The skin change scroll's window (CIFChangePlayerModel).
 const SKIN_PANEL = "Skin change";
 // CIFWholeChat, the Global Chatting item's window, and its line's edit box.
@@ -839,6 +848,25 @@ export function createUi(
 	let buffDismiss: { skillId: number; instance: number; } | null = null;
 	let loading: LoadingPresentation | null = null;
 	let loadingGeneration = 0, loadingTravelRevision: number | undefined;
+	// The europe variant the next plain load draws, chosen a load ahead so
+	// only that background is kept decoded (mission-loading.ts loadingArtDemand).
+	let nextLoadingVariant = loadingVariant();
+	// A restart, exit or logout was asked for: character select or the title
+	// follows after the server's countdown, so their loading art is warmed.
+	let leaveRequested = false;
+	/*
+	================
+	takeLoadingVariant
+
+	The variant this load shows; the next one is drawn now, from the same
+	distribution native draws at the load itself.
+	================
+	*/
+	const takeLoadingVariant = () => {
+		const variant = nextLoadingVariant;
+		nextLoadingVariant = loadingVariant();
+		return variant;
+	};
 	const levels = feedbackLevels();
 	const notificationBanner = createNoticeBanner( "notificationBanner" ),
 		uniqueBanner = createUniqueBanner(),
@@ -1241,6 +1269,11 @@ export function createUi(
 	// The UI resolves the same icons on every layout; its resolver remembers them.
 	const iconPath = createIconPaths();
 	let controls: UiControl[] = [], blocks: UiRect[] = [], paths: string[] = [];
+	// The frame's item images (nativeItem): demanded like any path, but a
+	// window does not wait on them. A storage that waited on a deposited
+	// item's icon kept replaying its earlier contents, and the item stayed
+	// invisible ("I put items yet I can't see them").
+	let contentImages = new Set<string>();
 	const white = [ 1, 1, 1, 1 ] as const, gold = [ .94, .85, .63, 1 ] as const;
 	// CGWndListHost::LayoutScrollbar 6F3620: content insets also govern the scrollbar.
 	/*
@@ -1505,6 +1538,14 @@ export function createUi(
 				if ( questDetails && (owner === "quest-details" || owner === "quest-abandon") ) continue;
 				admittedWindows.delete( owner );
 			}
+		} else if ( !(isMainPopupPage( panel ) && isMainPopupPage( next )) ) {
+			// The primary window's replay (endWindow) bridges a main popup page
+			// to the next page of the same frame while its art loads. Any other
+			// switch leaves that window: replaying it under the new panel showed
+			// it beside what now draws in its place (the Chat window's input
+			// beside the chat bar, a duplicate "chat-text", when an exchange
+			// opened the inventory before its icons had loaded).
+			admittedWindows.delete( "primary" );
 		}
 		const wasOpen = !!panel;
 		panel = next;
@@ -3710,6 +3751,7 @@ export function createUi(
 			pending = true;
 			commands( { kind: "enter-world", character: selectedCharacter } );
 		} else if ( id === "logout" || id === "disconnect-confirm" ) {
+			leaveRequested = true;
 			commands( { kind: "logout" } );
 			password = "";
 			roster = [];
@@ -3721,15 +3763,17 @@ export function createUi(
 		} else if ( id === "disconnect" ) commands( { kind: "disconnect" } );
 		else if ( id === "system-restart" ) {
 			setPanel( "" );
+			leaveRequested = true;
 			commands( { kind: "restart" } );
 		} else if ( id === "system-exit" ) {
 			setPanel( "" );
+			leaveRequested = true;
 			commands( { kind: "exit" } );
-		} else if ( id === "close" || id === "companion-close" || id === "potion-cancel" ) {
+		} else if ( closedPanel( id ) !== undefined || id === "companion-close" || id === "potion-cancel" ) {
 			confirmDrop = "";
 			confirmAbandon = false;
-			// Closing the shop or the warehouse, or the inventory beside either,
-			// ends the NPC interaction: CIFWnd_OnInventoryOrStorageClose (5B0D20) and the
+			// Closing the shop or the warehouse, or the inventory or transport bag
+			// beside either, ends the NPC interaction: CIFWnd_OnInventoryOrStorageClose (5B0D20) and the
 			// store's own close (53D4BC) call CGInterface_SetNpcShopVisible( 0 ),
 			// which hides the talk menus and releases the NPC target (69FB95).
 			if ( panel === "Shop" || panel === "Storage" ) sendGameplay( { kind: "npc-close" } );
@@ -7498,11 +7542,12 @@ export function createUi(
 			controls = [];
 			blocks = [];
 			paths = [ ...commonWindowPaths ];
+			contentImages = new Set();
 			const fontPath = text.path();
 			if ( fontPath ) paths.push( fontPath );
 			const w = next.width, h = next.height, full: UiRect = [ 0, 0, w, h ];
 			const compact = compactHud.layout( w, h );
-			let targetBottom = 0, compactTelemetryTop = 4, companionToolsTop = 0;
+			let targetBottom = 0, compactTelemetryTop = 4;
 			if ( berserkActor ) {
 				const alpha = berserkEntryFlash( now - berserkStarted );
 				if ( alpha > 0 ) {
@@ -7636,12 +7681,13 @@ export function createUi(
 			*/
 			function endWindow( mark: readonly [number, number, number, number], owner = "primary" ) {
 				const admittedWindow = admittedWindows.get( owner );
-				windowMissing.push( ...paths.slice( mark[3] ).filter( path => !resources.has( path ) ) );
+				// Everything still loading is reported (tests wait on it before a raster);
+				// only the window's own art holds its admission.
+				const unloaded = paths.slice( mark[3] ).filter( path => !resources.has( path ) );
+				windowMissing.push( ...unloaded );
+				const gaps = unloaded.filter( path => !contentImages.has( path ) );
 				const key = phase + ":" + w + ":" + h;
-				if (
-					!fontPath || !resources.has( fontPath ) ||
-					paths.slice( mark[3] ).some( path => !resources.has( path ) )
-				) {
+				if ( !fontPath || !resources.has( fontPath ) || gaps.length ) {
 					quads.length = mark[0];
 					controls.length = mark[1];
 					blocks.length = mark[2];
@@ -7654,7 +7700,9 @@ export function createUi(
 						controls.push(
 							...admittedWindow.controls.map( c => ({
 								...c,
-								disabled: c.id === "close" || c.id.startsWith( "select-window:" ) ? c.disabled : true
+								disabled: closedPanel( c.id ) !== undefined || c.id.startsWith( "select-window:" ) ?
+									c.disabled :
+									true
 							}) )
 						);
 					}
@@ -7743,7 +7791,7 @@ export function createUi(
 			closeButton
 			================
 			*/
-			function closeButton( x: number, y: number, id = "close" ) {
+			function closeButton( x: number, y: number, id: CloseControlId ) {
 				const r: UiRect = [ x, y, 16, 16 ];
 				blocks.push( r );
 				controls.push( { id, label: "Close", rect: r, kind: "button" } );
@@ -7784,13 +7832,6 @@ export function createUi(
 						nativeRect;
 					const [x, y] = r;
 					statusBottom = Math.max( statusBottom, y + r[3] );
-					if ( !compact ) {
-						// Reserve the selected outline too, without moving native companion controls.
-						companionToolsTop = Math.max(
-							companionToolsTop,
-							y - COS_STATUS_OUTLINE_MARGIN + chrome.outlineSize[1] + HUD_TOOLS_GAP
-						);
-					}
 					if ( record.gid === cosHud.selected() ) {
 						image(
 							[
@@ -7970,6 +8011,10 @@ export function createUi(
 			/*
 			================
 			authoredText
+
+			A static's text in its client rect. clipToControl keeps it inside
+			that rect: true ends a long line with an ellipsis, "clip" cuts it
+			at the edge.
 			================
 			*/
 			function authoredText(
@@ -7977,7 +8022,7 @@ export function createUi(
 				ox: number,
 				oy: number,
 				value: string,
-				clipToControl = false
+				clipToControl: boolean | "clip" = false
 			) {
 				const box = authoredClientRect( node, ox, oy );
 				quads.push(
@@ -7985,7 +8030,9 @@ export function createUi(
 						fontIndex: node.fontIndex,
 						hAlign: node.hAlign,
 						vAlign: node.vAlign,
-						...(clipToControl ? { overflow: "ellipsis" as const } : {})
+						...(clipToControl ?
+							{ overflow: clipToControl === "clip" ? "clip" as const : "ellipsis" as const } :
+							{})
 					} )
 				);
 			}
@@ -8450,7 +8497,13 @@ export function createUi(
 			nativeFrame
 			================
 			*/
-			function nativeFrame( node: AuthoredControl, px: number, py: number, caption: string, closeId = "close" ) {
+			function nativeFrame(
+				node: AuthoredControl,
+				px: number,
+				py: number,
+				caption: string,
+				closeId: CloseControlId
+			) {
 				const r: UiRect = [ px, py, node.rect[2], node.rect[3] ];
 				blocks.push( r );
 				paths.push( ...PARTS.map( p => node.texture + p + ".png" ) );
@@ -8562,7 +8615,7 @@ export function createUi(
 				disabled = false,
 				selected = false
 			) {
-				const path = iconPath( item?.icon );
+				const path = iconPath( item?.icon ), drawn = paths.length;
 				if ( path ) {
 					image( r, path );
 					if ( item && "typeFlags" in item ) {
@@ -8571,6 +8624,7 @@ export function createUi(
 						itemEffects( id, owned, r );
 					}
 				}
+				for ( const content of paths.slice( drawn ) ) contentImages.add( content );
 				controls.push( {
 					id,
 					label: item?.name ?? "",
@@ -8667,7 +8721,7 @@ export function createUi(
 				closeButton(
 					px + 362,
 					py + 10,
-					page === "Inventory" && panel !== "Inventory" ? "companion-close" : "close"
+					page === "Inventory" && panel !== "Inventory" ? "companion-close" : panelCloseId( page )
 				);
 				quads.push(
 					...text.quads( hudCopy( caption ), [ px + 10, py + 12, 367, 12 ], full, white, {
@@ -8753,9 +8807,9 @@ export function createUi(
 				const background = loading?.key === key ?
 					loading.background :
 					next.travel ?
-					travelLoadingBackground( next.travel, loadingVariant() ) :
+					travelLoadingBackground( next.travel, takeLoadingVariant() ) :
 					(next.frontend?.phase === "loading-world" || next.worldTransitionRegion === undefined) ?
-					missionLoadingQuads( w, h, loadingVariant(), 0 )[1]!.texture :
+					missionLoadingQuads( w, h, takeLoadingVariant(), 0 )[1]!.texture :
 					regionLoadingBackground( next.worldTransitionRegion! );
 				request = {
 					key,
@@ -8799,8 +8853,6 @@ export function createUi(
 			if ( warming !== null ) {
 				setPanel( warming, "warm" );
 				if ( warming === "Skills" ) windowWarm.add( skillWindowWarmPaths() );
-				// A map drag reaches tiles outside the warm build's view.
-				if ( warming === "Map" ) windowWarm.add( worldMapImagePaths( hud.data()?.mapIcons ) );
 			}
 			if ( worldVisible && hud.data() ) {
 				if ( chatFeedbackObserved < 0 ) {
@@ -10370,7 +10422,7 @@ export function createUi(
 							);
 						authoredLabeledButton( node, mx, my, "map-follow", caption );
 					}
-					closeButton( mx + mw - 25, my + 10 );
+					closeButton( mx + mw - 25, my + 10, panelCloseId( "Map" ) );
 					endWindow( admission );
 				}
 				if ( hudData && (!compact || compact.overlay === "map") ) {
@@ -10519,7 +10571,7 @@ export function createUi(
 							vAlign: 0
 						} )
 					);
-					closeButton( sx + 188, sy + 10 );
+					closeButton( sx + 188, sy + 10, panelCloseId( "System" ) );
 					for ( const node of layout.buttons ) {
 						const id = node.id === EXPERIMENTAL_MENU_ID ? "open-window:Experimental" : node.id === 10 ?
 							"open-window:Option" :
@@ -10549,7 +10601,7 @@ export function createUi(
 						layout = hudData.windows.ifautopotion!,
 						slot = hudData.windows.ifautopotionslot!;
 					windowBox( hudCopy( "UIIT_STT_MACROPOTION" ) || "Auto Potion", px, py, 394, 520 );
-					closeButton( px + 369, py + 10 );
+					closeButton( px + 369, py + 10, panelCloseId( "Auto Potion" ) );
 					const bg = layout.GDR_AUTO_POTION_BG_1!;
 					paths.push( bg.texture );
 					quads.push(
@@ -10830,7 +10882,7 @@ export function createUi(
 					] );
 					const layout = hudData.windows.ifoption!, slot = hudData.windows.ifgameoptionslot!;
 					windowBox( "Experimental", px, py, width, height );
-					closeButton( px + width - 26, py + 10 );
+					closeButton( px + width - 26, py + 10, panelCloseId( "Experimental" ) );
 					const tabWidth = 78, tabStart = (width - (EXPERIMENTAL_TABS.length * tabWidth - 2)) / 2;
 					for ( let i = 0; i < EXPERIMENTAL_TABS.length; i++ ) {
 						nativeTab(
@@ -10962,7 +11014,7 @@ export function createUi(
 							vAlign: 0
 						} )
 					);
-					closeButton( px + 360, py + 10 );
+					closeButton( px + 360, py + 10, panelCloseId( "Option" ) );
 					const tile = { ...layout.GDR_OPTION_BGTILE!, rect: geometry.tile as unknown as UiRect };
 					authoredChrome( tile, px, py );
 					const tabs = [ "VIDEO", "AUDIO", "CAMERA", "INPUT", "GAME" ];
@@ -12117,7 +12169,7 @@ export function createUi(
 					}
 					// Beside a service window the inventory is a companion with its own close
 					// identity. It retains only its own admission: replaying the standalone
-					// window would publish a second "close" beside the service window's.
+					// window would publish its own panel close beside the service window's.
 					endWindow( admission, panel === "Inventory" ? "primary" : "companion:Inventory" );
 				}
 				if ( panel === "Actions" && hudData ) {
@@ -12948,7 +13000,7 @@ export function createUi(
 						ox = px + 19,
 						oy = py + 92;
 					windowBox( hudCopy( "UIIT_STT_BLOCKMAN_LIST" ), px, py, 477, 400 );
-					closeButton( px + 451, py + 10 );
+					closeButton( px + 451, py + 10, panelCloseId( "Blocking" ) );
 					button( "open-window:Guild", "Community", px + 16, py + 35, 110 );
 					const tabRoot = ROOT + "interface/guild/gil_subj_tab_";
 					paths.push( tabRoot + "on.png", tabRoot + "off.png" );
@@ -13208,7 +13260,7 @@ export function createUi(
 							{ hAlign: 1, vAlign: 0 }
 						)
 					);
-					closeButton( px + 759, py + 10 );
+					closeButton( px + 759, py + 10, panelCloseId( "Party Matching" ) );
 					const match = game?.partyMatching,
 						slot = hudData.windows.ifpartymatchslot!,
 						social = game?.social,
@@ -13499,7 +13551,7 @@ export function createUi(
 					const shop = game?.shop,
 						valid = !!shop && shop.npc === game?.target && !shop.error,
 						busy = !!game?.inventoryPending;
-					nativeFrame( root, px, py, shop?.name ?? "" );
+					nativeFrame( root, px, py, shop?.name ?? "", panelCloseId( "Shop" ) );
 					nativePage( page, px, py );
 					if ( compact ) {
 						controls.push( {
@@ -13598,7 +13650,14 @@ export function createUi(
 					if ( resources.has( top ) ) rect( [ px, py, root.rect[2], root.rect[3] ], white, top );
 					blocks.push( [ px, py, 376, 378 ] );
 					authoredText( frame.GDR_ALCHEMYBOX_TITLE!, px, py, hudCopy( "UIIT_CTL_ALCHEMYBOX" ) );
-					authoredButton( frame.GDR_ALCHEMYBOX_CLOSE!, px, py, "close", hudCopy( "UIIT_CTL_CLOSE" ), busy );
+					authoredButton(
+						frame.GDR_ALCHEMYBOX_CLOSE!,
+						px,
+						py,
+						panelCloseId( "Alchemy" ),
+						hudCopy( "UIIT_CTL_CLOSE" ),
+						busy
+					);
 					const pane = frame[
 						processing ?
 							"GDR_ALCHEMYBOX_ELEMENT_MANUFACTURING" :
@@ -13708,7 +13767,7 @@ export function createUi(
 						busy = !!game?.inventoryPending || room?.phase !== "open",
 						page = storagePanel.page( capacity ),
 						slotIds = Array.from( { length: STORAGE_PAGE_SLOTS }, ( _, i ) => storageSlotControlId( i ) );
-					nativeFrame( root, px, py, hudCopy( root.text ) );
+					nativeFrame( root, px, py, hudCopy( root.text ), panelCloseId( "Storage" ) );
 					// Slots, the spinner, the gold amount and the money button are live.
 					nativePage( layout, px, py, [ ...slotIds, 10, 11, 13 ] );
 					for ( let i = 0; i < STORAGE_PAGE_SLOTS; i++ ) {
@@ -14322,7 +14381,11 @@ export function createUi(
 							py,
 							hudCopy( symbol ) + " - " + hudCopy( "UIIT_STT_AVATAR_MAGICOPTION_ADD_COUNT" ) + ": " +
 								free +
-								hudCopy( "UIIT_STT_UNIT" )
+								hudCopy( "UIIT_STT_UNIT" ),
+							// The English line is wider than its static: cut it at the static,
+							// as a native CIFStatic does, instead of drawing under the
+							// inventory beside the window.
+							"clip"
 						);
 					}
 					// 6EB3E0 backs every row with gil_bar02; the chosen row is selected.
@@ -14629,7 +14692,9 @@ export function createUi(
 					}
 					const record = records.find( r => r.gid === cosGid ), busy = !!game?.inventoryPending;
 					if ( cosTab === 1 && !record?.inventory || cosTab === 2 && record?.band !== 4 ) cosTab = 0;
-					nativeFrame( root, px, py, record?.name ?? "" );
+					// Beside a shop (trade goods loading into a transport) the bag keeps
+					// its own close identity; closing it ends the trade, as the shop's does.
+					nativeFrame( root, px, py, record?.name ?? "", panelCloseId( "COS inventory" ) );
 					nativePage( hudData.windows.ifcos!, px, py );
 					[
 						"UIIT_STT_COSNEWUI_TABMENU_BASICINFO",
@@ -15685,7 +15750,13 @@ export function createUi(
 							guild = social?.guild,
 							self = guildSelf( social );
 						image( [ x + 6, y + 28, width - 12, height - 34 ], at( page, 1 ).texture );
-						nativeFrame( { ...root, rect: [ 0, 0, width, height ] }, x, y, hudCopy( root.text ) );
+						nativeFrame(
+							{ ...root, rect: [ 0, 0, width, height ] },
+							x,
+							y,
+							hudCopy( root.text ),
+							panelCloseId( "Guild" )
+						);
 						/*
 						================
 						put
@@ -16223,7 +16294,7 @@ export function createUi(
 							gx = px + 13,
 							gy = py + 61,
 							guild = game?.social?.guild;
-						nativeFrame( root, px, py, hudCopy( root.text ) );
+						nativeFrame( root, px, py, hudCopy( root.text ), panelCloseId( "Guild" ) );
 						[
 							"UIIT_STT_GUILD_INFO",
 							"UIIT_CTL_GUILD_RESPECT",
@@ -16521,7 +16592,7 @@ export function createUi(
 					const admission = beginWindow();
 					const px = Math.max( 12, (w - 380) / 2 ), py = Math.max( 150, (h - 440) / 2 );
 					windowBox( panel, px, py, 380, 420 );
-					closeButton( px + 354, py + 10 );
+					closeButton( px + 354, py + 10, panelCloseId( panel === "Chat" ? "Chat" : "Magic Pop" ) );
 					if ( panel === "Magic Pop" ) {
 						const active = game?.gacha,
 							busy = !!game?.inventoryPending,
@@ -17083,7 +17154,7 @@ export function createUi(
 							{ hAlign: 1, vAlign: 1 }
 						)
 					);
-					closeButton( ax + 760, ay + 10 );
+					closeButton( ax + 760, ay + 10, panelCloseId( "Academy Matching" ) );
 					const field: Record<string, keyof import("@/engine/foundation/gameplay/academy").AcademyListing> = {
 						ID_BTN: "id",
 						LEVEL_BTN: "level",
@@ -17222,7 +17293,7 @@ export function createUi(
 						{ hAlign: 1, vAlign: 1 }
 					)
 				);
-				closeButton( gx + 399, gy + 10 );
+				closeButton( gx + 399, gy + 10, panelCloseId( "Game Guide" ) );
 				for (
 					const name of [
 						"GDR_GUIDE_FRAME_1",
@@ -19882,8 +19953,16 @@ export function createUi(
 				}
 				if ( resources.has( art ) ) rect( layout.art, white, art );
 				const low = game?.progression?.level !== undefined && game.progression.level <= 10;
+				// 52FF33: a team death (mode 2, the 0x37CE notice) revives where it
+				// fell, so the first button reads "standing"; the server's
+				// rebirth (50FEE0) revives it there whatever the choice.
+				const team = game?.rebirthMode === TEAM_DEATH_MODE;
 				for (
-					const [id, key, r] of [ [ "rebirth-point", "UIIT_MSG_MSGBOX_REBIRTH_POINT_BUTTON", layout.point ], [
+					const [id, key, r] of [ [
+						"rebirth-point",
+						team ? "UIIT_MSG_MSGBOX_REBIRTH_STANDING_BUTTON" : "UIIT_MSG_MSGBOX_REBIRTH_POINT_BUTTON",
+						layout.point
+					], [
 						"rebirth-alternate",
 						low ? "UIIT_MSG_MSGBOX_REBIRTH_STANDING_BUTTON" : "UIIT_MSG_MSGBOX_REBIRTH_HELP_BUTTON",
 						layout.alternate
@@ -21549,7 +21628,9 @@ export function createUi(
 				hudCorner: compact ?
 					[ w, itemMall.read().visible ? 52 : compactTelemetryTop, 0, 0 ] as UiRect :
 					hudCorner,
-				hudToolsTop: compact ? undefined : Math.max( companionToolsTop, targetBottom ),
+				// A fixed row below the companion icons' reach: following the icons
+				// moved the tools whenever a pet or mount came or went.
+				hudToolsTop: compact ? undefined : Math.max( cosStatusRowBottom() + HUD_TOOLS_GAP, targetBottom ),
 				focusRequest: worldVisible && phase === "world" ? focusRequest : undefined,
 				loadingProgress: loading?.progress,
 				loadingStatus: loading?.status,
@@ -21582,7 +21663,13 @@ export function createUi(
 				controls
 			};
 			// A completion here must rebuild texture-dependent quads on the next step.
-			paths.push( ...missionLoadingAssets() );
+			if ( phase !== "world" ) leaveRequested = false;
+			paths.push( ...loadingArtDemand( {
+				inWorld: phase === "world",
+				dead: !!game?.vitals.find( v => v.gid === game.localGid )?.deathState,
+				leaving: leaveRequested,
+				nextVariant: nextLoadingVariant
+			} ) );
 			// Prewarm decoded authored artwork so hotkeys/sidebar changes stay immediate.
 			// Renderer now derives GPU residency from committed quads; this catalogue
 			// must never again be interpreted as the set of GPU-resident textures.

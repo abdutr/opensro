@@ -78,6 +78,11 @@ type Catalog struct {
 	// Rates is the shard's port-only reinforcement table (rates.go); nil
 	// keeps every elixir's authored chance.
 	Rates ReinforceRates
+	// MaxPlus is the shard's enhancement cap (maxplus.go); 0 is native.
+	MaxPlus uint8
+	// NoAssimilation removes stone assimilation (noassimilation.go);
+	// false is native.
+	NoAssimilation bool
 }
 
 /*

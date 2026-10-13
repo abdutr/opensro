@@ -49,6 +49,7 @@ type residentSkill struct {
 	Threat                  unique.Handle[SkillThreat]
 	ContinueBasicAttack     bool
 	NameAttackContent       bool
+	AssistsCompanions       bool
 	ProjectileSpeed         uint32
 	ActionHandler           SkillActionHandler
 	Concealment             SkillConcealment
@@ -165,6 +166,7 @@ func compactSkill(row SkillRow) residentSkill {
 		Threat:                  unique.Make(row.Threat),
 		ContinueBasicAttack:     row.ContinueBasicAttack,
 		NameAttackContent:       row.NameAttackContent,
+		AssistsCompanions:       row.AssistsCompanions,
 		ProjectileSpeed:         row.ProjectileSpeed,
 		ActionHandler:           row.ActionHandler,
 		Concealment:             row.Concealment,
@@ -284,6 +286,7 @@ func (r residentSkill) value() SkillRow {
 		Threat:                  r.Threat.Value(),
 		ContinueBasicAttack:     r.ContinueBasicAttack,
 		NameAttackContent:       r.NameAttackContent,
+		AssistsCompanions:       r.AssistsCompanions,
 		ProjectileSpeed:         r.ProjectileSpeed,
 		ActionHandler:           r.ActionHandler,
 		Concealment:             r.Concealment,
@@ -408,6 +411,28 @@ func (s *skillStorage) lookup(id uint32) (SkillRow, bool) {
 		return SkillRow{}, false
 	}
 	return r.value(), true
+}
+
+/*
+================
+groupRank
+
+The row's skill group and level without materializing the row. value()
+builds the whole SkillRow (dozens of fields, several decoded), and the
+stats projection only needs these two for every learned skill (2026-10-13
+prod profile: residentSkill.value plus lookup were 12% of the GameWorld).
+================
+*/
+func (s *skillStorage) groupRank(id uint32) (group uint32, level int64, ok bool) {
+	if s.archive != nil {
+		row, found := s.archive.Get(id)
+		return row.Group, row.Level, found
+	}
+	r, found := s.hot[id]
+	if !found {
+		return 0, 0, false
+	}
+	return r.Group, r.Level, true
 }
 
 /*

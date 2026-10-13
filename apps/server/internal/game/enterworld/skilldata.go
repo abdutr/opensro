@@ -130,6 +130,9 @@ SkillRow is one skilldata record's learn-plane fields.
 ================
 */
 type SkillRow struct {
+	// AssistsCompanions: a cast of this skill sends the caster's attack pets
+	// onto its target (motion record +0xBD, skillassist.go).
+	AssistsCompanions bool
 	// Column 47, native server +C4: 0 China, 1 Europe, 3 unrestricted.
 	RequiredRace    uint8
 	StructureRepair SkillStructureRepair
@@ -544,6 +547,31 @@ func (t *TextdataSkills) SkillByID(id uint32) (SkillRow, bool) {
 }
 
 /*
+================
+SkillGroupRank
+
+The same row's group and level as SkillByID answers, without building the
+row (SkillGroupRanker).
+================
+*/
+func (t *TextdataSkills) SkillGroupRank(id uint32) (group uint32, level int64, ok bool) {
+	t.once.Do(t.load)
+	return t.rows.groupRank(id)
+}
+
+/*
+================
+SkillGroupRanker
+
+An optional SkillDataSource capability: a skill's group and level without
+its whole row. Sources that lack it are read through SkillByID.
+================
+*/
+type SkillGroupRanker interface {
+	SkillGroupRank(id uint32) (group uint32, level int64, ok bool)
+}
+
+/*
 ==================
 SkillByCodename
 
@@ -584,7 +612,8 @@ only read afterwards, and UseBoundedCache replaces fields, never contents.
 */
 func (t *TextdataSkills) load() {
 	shards := skillShards(t.dir)
-	paths := []string{filepath.Join(t.dir, "skilldata.txt")}
+	// skilleffect.txt feeds AssistsCompanions (skillassist.go).
+	paths := []string{filepath.Join(t.dir, "skilldata.txt"), filepath.Join(t.dir, "skilleffect.txt")}
 	for _, shard := range shards {
 		paths = append(paths, filepath.Join(t.dir, shard))
 	}
@@ -628,6 +657,8 @@ parse
 func (t *TextdataSkills) parse(shards []string) {
 	t.rows = skillStorage{}
 	t.byCodename = map[string]uint32{}
+	assistSets := skillAniSetAssists(t.dir)
+	recordSources := map[uint32]skillRecordSource{}
 
 	for _, shard := range shards {
 		for _, fields := range readTextdataFile(filepath.Join(t.dir, shard)) {
@@ -835,6 +866,10 @@ func (t *TextdataSkills) parse(shards []string) {
 				{ID: textdataU32(fields[skilldataColReqGroup2]), Level: textdataNonNegative(fields[skilldataColReqGroupLv2])},
 				{ID: textdataU32(fields[skilldataColReqGroup3]), Level: textdataNonNegative(fields[skilldataColReqGroupLv3])},
 			}
+			recordSources[row.ID] = skillRecordSource{
+				key:      skillRecordKey(fields[skilldataColAnimBase], row.Codename, assistSets),
+				original: textdataU32(fields[skilldataColBasicOriginal]),
+			}
 			t.rows.set(row.ID, row)
 		}
 	}
@@ -871,6 +906,7 @@ func (t *TextdataSkills) parse(shards []string) {
 		row.LinkedSkillID = root
 		t.rows.set(id, row)
 	}
+	t.applySkillAssists(recordSources, assistSets)
 	t.plans = make(map[uint32]SkillExecutionPlan, t.rows.len())
 	// Compile once after chain membership is final; no sync.Once re-entry.
 	for id, row := range t.rows.values() {

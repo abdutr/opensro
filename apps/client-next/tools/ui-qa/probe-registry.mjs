@@ -8,27 +8,25 @@ The registry is imported from production; no second list of windows is kept.
 */
 import { mkdir, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
+import { UI_QA_ORIGIN } from "./settings.mjs";
+import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { fetchCatalogIdentity } from "./catalog-client.mjs";
 
 const extended = process.argv.includes( "--extended" );
 const match = process.argv.find( value => value.startsWith( "--match=" ) )?.slice( 8 );
-const directory = "temp/artifacts/ui-qa/" + (extended ? "extended" : "registry");
+const directory = artifactDirectory( extended ? "extended" : "registry" );
 await mkdir( directory, { recursive: true } );
 const { browser, page } = await launchProbeBrowser( { viewport: { width: 1500, height: 1100 } } );
 const results = [], errors = [], external = [];
 page.on( "pageerror", error => errors.push( String( error ) ) );
-page.on( "request", request => {
-	if ( /^https?:/.test( request.url() ) && !request.url().startsWith( "http://127.0.0.1:5190/" ) ) {
-		external.push( request.url() );
-	}
-} );
+await guardReviewRequests( page.context(), external );
 let identity;
 try {
-	await page.goto( "http://127.0.0.1:5190/" );
+	await page.goto( UI_QA_ORIGIN + "/" );
 	await page.waitForFunction( () =>
 		document.querySelector( "#runtime-status" )?.textContent?.includes( "controls" )
 	);
-	identity = await page.request.get( "http://127.0.0.1:5190/__uiqa/catalog" ).then( response => response.json() )
-		.then( value => value.identity );
+	identity = await fetchCatalogIdentity();
 	const entries = await page.evaluate( async extended => {
 		const { journeys } = await import( "/tools/ui-qa/scenarios.ts" );
 		return journeys.filter( row =>
@@ -93,9 +91,7 @@ try {
 	}
 } finally {
 	const admitted = results.filter( row => !row.reason ).length;
-	const finalIdentity = await page.request.get( "http://127.0.0.1:5190/__uiqa/catalog" ).then( response =>
-		response.json()
-	).then( value => value.identity );
+	const finalIdentity = await fetchCatalogIdentity();
 	if ( finalIdentity.fingerprint !== identity?.fingerprint ) {
 		errors.push( "Source changed during sweep; rerun required" );
 	}

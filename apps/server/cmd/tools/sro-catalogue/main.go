@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"opensro.online/server/internal/catalogue"
+	"opensro.online/server/internal/config/shardsettings"
 	"opensro.online/server/internal/game/action"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/alchemy"
@@ -173,10 +174,55 @@ func skillRows(source *enterworld.TextdataSkills) []enterworld.SkillRow {
 
 /*
 ================
+shardShops
+
+The shops the shard sells from: the same setting (SRO_SHOP_EXTRA_GOODS,
+port-only) and the same loader the GameWorld uses, so the published shop
+tabs list the extra goods the shard sells. Unset or "off" is the v1.150
+stock.
+=========}
+
+/*
+================
+*/
+func shardShops(dir string, items enterworld.ItemRefSource) (*commerce.Catalog, error) {
+	extra, err := commerce.ExtraGoodsFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return commerce.LoadWithExtraGoods(dir, items, extra)
+}
+
+/*
+================
+resolveShardSettings
+
+The catalogue describes the shard a default deploy runs: every setting it
+reads that the operator left unset takes its deployment default from the
+shard settings table (the one sro-nomad deploys from), before any reader
+looks. An explicit value, "off" included, still wins.
+================
+*/
+func resolveShardSettings() error {
+	filled, err := shardsettings.ApplyCatalogueDefaults(os.Getenv, os.Setenv)
+	if err != nil {
+		return fmt.Errorf("shard settings: %w", err)
+	}
+	if len(filled) > 0 {
+		fmt.Fprintf(os.Stderr, "shard settings at their deployment defaults: %s\n", strings.Join(filled, ", "))
+	}
+	return nil
+}
+
+/*
+================
 run
 ================
 */
 func run(out, release, textdata string) error {
+	if err := resolveShardSettings(); err != nil {
+		return err
+	}
 	dir, err := textdataDir(textdata)
 	if err != nil {
 		return err
@@ -208,11 +254,13 @@ func run(out, release, textdata string) error {
 	}
 	quests := catalogue.BuildQuests(catalogue.QuestSource{Catalog: questCatalog, Definitions: definitions,
 		Text: englishText(dir), Listed: listedQuests(dir), ItemID: itemID})
-	monsters, err := catalogue.BuildMonsters(catalogue.MonsterSource{Template: monster.LoadTemplate(dir), ItemID: itemID})
+	skillData := enterworld.NewTextdataSkills(dir)
+	monsters, err := catalogue.BuildMonsters(catalogue.MonsterSource{Template: monster.LoadTemplate(dir), ItemID: itemID,
+		Skills: skillData})
 	if err != nil {
 		return fmt.Errorf("monsters: %w", err)
 	}
-	shops, err := commerce.Load(dir, itemSource)
+	shops, err := shardShops(dir, itemSource)
 	if err != nil {
 		return fmt.Errorf("shops: %w", err)
 	}
@@ -223,6 +271,9 @@ func run(out, release, textdata string) error {
 	// The export describes the shard it is built for, so it reads the same
 	// port-only setting the GameWorld does.
 	if alchemyCatalog.Rates, err = alchemy.ReinforceRatesFromEnv(); err != nil {
+		return err
+	}
+	if alchemyCatalog.MaxPlus, err = alchemy.ReinforceMaxPlusFromEnv(); err != nil {
 		return err
 	}
 	npcs := catalogue.BuildNpcs(catalogue.NpcSource{Roster: simulation.LoadNpcWorldRoster(dir), Shops: shops})
@@ -238,13 +289,19 @@ func run(out, release, textdata string) error {
 	if _, err := progression.BetaDropMixFromEnv(); err != nil {
 		return err
 	}
-	skillData := enterworld.NewTextdataSkills(dir)
 	skillList := skillRows(skillData)
 	skills := catalogue.BuildSkills(catalogue.SkillSource{Rows: skillList,
 		Handled: func(row enterworld.SkillRow) bool { return action.SkillPressHandled(skillData, row) },
 		Plan:    func(id uint32) enterworld.SkillExecutionKind { return skillData.ExecutionPlan(id).Kind() }})
 	if err := writeJSON(filepath.Join(out, "_build", "item-references.json"),
 		clientReferences(refs, skillData)); err != nil {
+		return err
+	}
+	// Every magicoption.txt definition, as the enter-world magicOptionSnapshot
+	// ships it: the website's tooltip bundle resolves a worn item's options
+	// through the same rows the game client does.
+	if err := writeJSON(filepath.Join(out, "_build", "magic-options.json"),
+		enterworld.NewTextdataMagicOptions(dir).AllMagicOptions()); err != nil {
 		return err
 	}
 	files := map[string]any{

@@ -9,18 +9,17 @@ Uses real browser input; fixture state changes remain explicit checkpoints.
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
+import { UI_QA_ORIGIN } from "./settings.mjs";
+import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { fetchCatalog } from "./catalog-client.mjs";
 
-const directory = "temp/artifacts/ui-qa/boundaries";
+const directory = artifactDirectory( "boundaries" );
 await mkdir( directory, { recursive: true } );
 const { browser, page } = await launchProbeBrowser( { viewport: { width: 1500, height: 1150 }, deviceScaleFactor: 2 } );
 const errors = [], external = [], results = [];
 let outcome = "incomplete";
 page.on( "pageerror", error => errors.push( String( error ) ) );
-page.on( "request", request => {
-	if ( /^https?:/.test( request.url() ) && !request.url().startsWith( "http://127.0.0.1:5190/" ) ) {
-		external.push( request.url() );
-	}
-} );
+await guardReviewRequests( page.context(), external );
 
 /*
 ================
@@ -263,9 +262,7 @@ async function ledger() {
 	await choose( "Roster, selection and overflow" );
 	await choose( "Tools and availability" );
 	assert.equal( await page.locator( "#notes" ).inputValue(), "Unreviewed draft retained across navigation" );
-	const current = await page.request.get( "http://127.0.0.1:5190/__uiqa/catalog" ).then( response =>
-		response.json()
-	);
+	const current = await fetchCatalog();
 	await page.evaluate( identity => {
 		localStorage.removeItem( "opensro.ui-qa.drafts.v1" );
 		localStorage.setItem(
@@ -309,13 +306,13 @@ async function ledger() {
 	assert.equal( saved.identity.assetHash, current.identity.assetHash );
 	assert.equal( saved.evidence.id, "hud-tools" );
 	assert.ok( saved.browser.includes( "Chrome" ) );
-	assert.equal( (await page.request.get( "http://127.0.0.1:5190/api/health" )).status(), 403 );
+	assert.equal( (await page.request.get( UI_QA_ORIGIN + "/api/health" )).status(), 403 );
 	results.push( { name: "review-drafts-staleness-export-and-local-guard", identity: current.identity } );
 	console.log( "PASS review-drafts-staleness-export-and-local-guard" );
 }
 
 try {
-	await page.goto( "http://127.0.0.1:5190/" );
+	await page.goto( UI_QA_ORIGIN + "/" );
 	await fixture();
 	for ( const [name, run] of Object.entries( { guild, hud, stall, ledger } ) ) {
 		if ( process.argv[2] && process.argv[2] !== name ) continue;

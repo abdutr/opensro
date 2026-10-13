@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"opensro.online/server/internal/game/enterworld"
 )
 
@@ -49,13 +50,19 @@ The action-owned ports, recording what they were asked.
 ================
 */
 type adminOwner struct {
+	hours    []uint8
 	recalled []string
 	guilds   map[string]bool
+	banned   []string
 }
+
+func (o *adminOwner) PlayerBannedGM(_, name string) { o.banned = append(o.banned, name) }
 
 func (*adminOwner) ToggleGMBodyStatus(string, string, uint8) bool { return false }
 
 func (*adminOwner) WorldStatusGM(string) (uint32, uint32, uint32) { return 3, 250, 17 }
+
+func (o *adminOwner) SetGameTimeGM(hour uint8) { o.hours = append(o.hours, hour) }
 
 func (o *adminOwner) RecallGuildGM(_, name, guild string) bool {
 	o.recalled = append(o.recalled, name+">"+guild)
@@ -97,19 +104,27 @@ TestBanLogsOutAPlayerInTheWorld
 func TestBanLogsOutAPlayerInTheWorld(t *testing.T) {
 	gm, player, _ := adminCharacters()
 	presence := &adminPresence{online: map[string]bool{"gm": true, "remo": true}}
-	out := HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "remo"), &adminOwner{})
+	owner := &adminOwner{}
+	out := HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "remo"), owner)
 	if !bytes.Equal(out.Ack, []byte{1, SubBan}) || len(presence.ended) != 1 || presence.ended[0] != "Remo" {
 		t.Fatalf("ban ack % X, ended %v", out.Ack, presence.ended)
 	}
+	// The website feed hears of the ban under the stored name (BanObserver).
+	if len(owner.banned) != 1 || owner.banned[0] != "Remo" {
+		t.Fatalf("ban observed %v", owner.banned)
+	}
 	presence.online["remo"] = false
 	presence.ended = nil
-	out = HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "Remo"), &adminOwner{})
-	if !bytes.Equal(out.Ack, EncodeAckFail(SubBan)) || len(presence.ended) != 0 {
-		t.Fatalf("offline ban ack % X, ended %v", out.Ack, presence.ended)
+	owner.banned = nil
+	out = HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "Remo"), owner)
+	// Natively refused offline; the website feed still drops the player.
+	if !bytes.Equal(out.Ack, EncodeAckFail(SubBan)) || len(presence.ended) != 0 || len(owner.banned) != 1 || owner.banned[0] != "Remo" {
+		t.Fatalf("offline ban ack % X, ended %v, observed %v", out.Ack, presence.ended, owner.banned)
 	}
-	out = HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "Ghost"), &adminOwner{})
-	if !bytes.Equal(out.Ack, EncodeAckFail(SubBan)) {
-		t.Fatalf("unknown ban ack % X", out.Ack)
+	owner.banned = nil
+	out = HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "Ghost"), owner)
+	if !bytes.Equal(out.Ack, EncodeAckFail(SubBan)) || len(owner.banned) != 0 {
+		t.Fatalf("unknown ban ack % X, observed %v", out.Ack, owner.banned)
 	}
 }
 
@@ -180,5 +195,59 @@ func TestLieNameAndRealNameLookUpPlayersInTheWorld(t *testing.T) {
 	out := HandleGmCommand(deps, presence, testDivision, gm, nameFrame(SubLieName, "remo_account"), &adminOwner{})
 	if !bytes.Equal(out.Ack, EncodeRequestFailure(Request{Subcmd: SubLieName, Name: "remo_account"})) {
 		t.Fatalf("offline lie-name ack % X", out.Ack)
+	}
+}
+
+/*
+================
+TestBanLeavesAnOperatorTrail
+
+#681: a ban names the GM, the player and the account in the operator log;
+a refused one leaves nothing.
+================
+*/
+func TestBanLeavesAnOperatorTrail(t *testing.T) {
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
+	gm, player, _ := adminCharacters()
+	presence := &adminPresence{online: map[string]bool{"gm": true, "remo": true}}
+	HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "Ghost"), &adminOwner{})
+	if len(hook.AllEntries()) != 0 {
+		t.Fatalf("a refused ban logged %v", hook.AllEntries())
+	}
+	HandleGmCommand(testDeps(gm, player), presence, testDivision, gm, nameFrame(SubBan, "Remo"), &adminOwner{})
+	var trail map[string]any
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["gm"] != nil {
+			trail = entry.Data
+		}
+	}
+	if trail["gm"] != "Gm" || trail["character"] != "Remo" || trail["account"] != "remo_account" || trail["division"] != testDivision {
+		t.Fatalf("ban trail %v", trail)
+	}
+}
+
+/*
+================
+TestSetTimeMovesTheClockByTheGivenHour
+
+509CF0 sends [0x0A, hour 0..23]; the owner moves the clock and the GM gets
+[1, 0x0A]. A malformed frame is the silent decode refusal.
+================
+*/
+func TestSetTimeMovesTheClockByTheGivenHour(t *testing.T) {
+	gm, _, _ := adminCharacters()
+	owner := &adminOwner{}
+	out := HandleGmCommand(testDeps(gm), &adminPresence{}, testDivision, gm, []byte{SubSetTime, 13}, owner)
+	if !bytes.Equal(out.Ack, []byte{1, SubSetTime}) || len(owner.hours) != 1 || owner.hours[0] != 13 {
+		t.Fatalf("settime ack % X, hours %v", out.Ack, owner.hours)
+	}
+	for _, frame := range [][]byte{{SubSetTime}, {SubSetTime, 24}, {SubSetTime, 1, 2}} {
+		if out := HandleGmCommand(testDeps(gm), &adminPresence{}, testDivision, gm, frame, owner); out.Ack != nil {
+			t.Fatalf("malformed % X answered % X", frame, out.Ack)
+		}
+	}
+	if len(owner.hours) != 1 {
+		t.Fatalf("a malformed frame moved the clock: %v", owner.hours)
 	}
 }

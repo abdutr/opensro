@@ -11,31 +11,9 @@ import { uiPanels } from "../../src/engine/foundation/ui/panels";
 import { coverageRows } from "./coverage-ledger";
 import { prototypeScope } from "./prototype-scope";
 
-interface Resource {
-	name: string;
-	nativeHash: string | null;
-	publishedHash: string | null;
-	url: string | null;
-	references: string[];
-	sections: {
-		name: string;
-		nodes: { id: number; name: string; type: string; rect: number[]; occurrence: number; }[];
-	}[];
-}
-interface Catalog {
-	identity: {
-		codeSha: string;
-		sourceHash: string;
-		assetHash: string;
-		defineHash: string | null;
-		fontHash: string | null;
-		fingerprint: string;
-		dirty: boolean;
-	};
-	roots: Record<string, string>;
-	resources: Resource[];
-	limitations: string;
-}
+import type { Catalog, Resource } from "./catalog-types";
+import { fetchCatalog } from "./catalog-client.mjs";
+
 interface Review {
 	item: string;
 	context: string;
@@ -633,7 +611,7 @@ async function saveReview() {
 		evidence: report ? structuredClone( report ) : { resource: selection, availability: "not exercised" }
 	};
 	try {
-		const current = await readCatalog();
+		const current = await fetchCatalog();
 		if ( current.identity.fingerprint !== catalog.identity.fingerprint ) {
 			element( "save-status" ).textContent =
 				"Source or assets changed. Reload the workbench before recording this review.";
@@ -672,7 +650,7 @@ Includes unreviewed inventory and explicitly bounded coverage, not only notes.
 async function exportLedger() {
 	let current: Catalog;
 	try {
-		current = await readCatalog();
+		current = await fetchCatalog();
 	} catch ( error ) {
 		element( "save-status" ).textContent = `Export could not verify current identity: ${String( error )}`;
 		return;
@@ -733,22 +711,11 @@ async function exportLedger() {
 
 /*
 ================
-readCatalog
-================
-*/
-async function readCatalog(): Promise<Catalog> {
-	const response = await fetch( "/__uiqa/catalog" );
-	if ( !response.ok ) throw Error( `Catalog unavailable: ${await response.text()}` );
-	return response.json() as Promise<Catalog>;
-}
-
-/*
-================
 start
 ================
 */
 async function start() {
-	catalog = await readCatalog();
+	catalog = await fetchCatalog();
 	try {
 		ledger = JSON.parse( localStorage.getItem( STORE ) ?? "[]" );
 	} catch {

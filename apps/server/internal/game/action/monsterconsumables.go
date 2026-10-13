@@ -55,6 +55,17 @@ func (rt *Runtime) prepareSelectedDrop(chosen loot.DropItem, at simulation.Spawn
 	if !ok || ref == nil {
 		return grounditem.Item{}, false
 	}
+	// Port-only, not native, beta balance (owner 2026-10-13): every monster
+	// drop path ends here, so with elixir drops off an elixir pick drops
+	// nothing; the blacksmith sells them (progression/elixirdrops.go).
+	if rt.ElixirDrops.Excludes(ref.TypeIDs) {
+		return grounditem.Item{}, false
+	}
+	// Port-only, not native, beta balance (owner 2026-10-13): degree-9
+	// alchemy goods come only from the shop, so their pick drops nothing.
+	if itemClass, _ := ref.NativeFields.Lookup("itemClass"); rt.ShopOnly.Excludes(ref.TypeIDs, int(itemClass)) {
+		return grounditem.Item{}, false
+	}
 	row := inventory.Item{RefObjID: ref.RefObjID, Codename: ref.Codename, TypeFlags: ref.TypeFlags(), Quantity: chosen.Count, Plus: chosen.Plus}
 	if ref.TypeIDs[1] == 1 {
 		variance, durability, ok := rt.rollDroppedEquipmentVariance(ref)

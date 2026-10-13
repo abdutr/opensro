@@ -1,20 +1,18 @@
 /*
 ===========================================================================
 
-portonly.go - the GameWorld job's port-only switches
+portonly.go - the GameWorld job's shard settings
 
-Each switch here turns on behaviour the original game does not have. The
-deployer's value reaches the GameWorld job as written and the GameWorld
-parses it; the GameWorld's own unset value is always native.
+Each setting the deployment chooses reaches the GameWorld job as one Nomad
+variable. The table that names them and holds the owner-approved
+deployment defaults is shardsettings.Settings (internal/config/
+shardsettings): the operator's value wins, otherwise the table's default.
+The GameWorld parses what arrives; its own unset value is always native.
 
-  - SRO_STORAGE_AUTO_STACK (storage_auto_stack): storage quick moves land
-    on a matching stack (action/storageautostack.go). The deployment
-    default is on, as the owner decided on 2026-10-11.
-  - SRO_REVERSE_RETURN_MAP (reverse_return_map): the reverse return
-    scroll's map destinations (action/reversemap.go). Off by default.
-  - SRO_ALCHEMY_RATES (alchemy_rates): the reinforcement rate table
-    (alchemy/rates.go). The deployment default is on, as the owner
-    decided on 2026-10-11; "off" is the authored chances.
+Settings the deployment computes itself (the beta mastery policy file,
+the party masteries switch, the parsed stack sizes) are filled in
+deployment.go; the table still holds their defaults for the job file and
+the catalogue build.
 
 ===========================================================================
 */
@@ -22,59 +20,41 @@ package main
 
 import (
 	"os"
-	"strings"
+
+	"opensro.online/server/internal/config/shardsettings"
 )
-
-// storageAutoStackDefault is the owner-approved deployment default.
-const storageAutoStackDefault = "on"
-
-// alchemyRatesDefault is the owner-approved deployment default.
-const alchemyRatesDefault = "on"
 
 /*
 ================
 portOnlySettings
+
+The table-filled settings' values, keyed by Nomad variable.
 ================
 */
-type portOnlySettings struct {
-	StorageAutoStack string
-	ReverseReturnMap string
-	AlchemyRates     string
-}
+type portOnlySettings map[string]any
 
 /*
 ================
 portOnlySettingsFromEnv
 
-The deployer's values as written; storage auto-stack and the alchemy
-rates take their defaults when unset.
+The deployer's values as written, each unset one at its deployment
+default.
 ================
 */
 func portOnlySettingsFromEnv() portOnlySettings {
-	settings := portOnlySettings{
-		StorageAutoStack: strings.TrimSpace(os.Getenv("SRO_STORAGE_AUTO_STACK")),
-		ReverseReturnMap: strings.TrimSpace(os.Getenv("SRO_REVERSE_RETURN_MAP")),
-		AlchemyRates:     strings.TrimSpace(os.Getenv("SRO_ALCHEMY_RATES")),
-	}
-	if settings.StorageAutoStack == "" {
-		settings.StorageAutoStack = storageAutoStackDefault
-	}
-	if settings.AlchemyRates == "" {
-		settings.AlchemyRates = alchemyRatesDefault
-	}
-	return settings
+	return portOnlySettings(shardsettings.JobVariables(os.Getenv, map[string]any{}))
 }
 
 /*
 ================
 jobVariables
 
-Adds the switches to the GameWorld job's variables.
+Adds the settings to the GameWorld job's variables.
 ================
 */
 func (settings portOnlySettings) jobVariables(variables map[string]any) map[string]any {
-	variables["storage_auto_stack"] = settings.StorageAutoStack
-	variables["reverse_return_map"] = settings.ReverseReturnMap
-	variables["alchemy_rates"] = settings.AlchemyRates
+	for name, value := range settings {
+		variables[name] = value
+	}
 	return variables
 }

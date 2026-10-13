@@ -11,7 +11,7 @@ import { createCharacterDialog } from "../../src/engine/runtime/frontend/dialog/
 import type { AssetOwner } from "../../src/engine/contracts/assets";
 import type { CharacterRecord } from "../../src/engine/contracts/session";
 import type { UiEvent } from "../../src/engine/contracts/ui";
-import type { EntryFixture } from "../../tests/helpers/ui-entry-recipes.mjs";
+import type { FrontendFixtureState } from "./fixture-state";
 
 /*
 ================
@@ -20,7 +20,7 @@ createFrontendFixture
 */
 export function createFrontendFixture(
 	assets: AssetOwner,
-	state: EntryFixture["state"],
+	state: FrontendFixtureState,
 	record: ( kind: string, detail: unknown ) => void
 ) {
 	const creation = createCreation( assets, location.origin, command => record( "unsupported integration", command ) );

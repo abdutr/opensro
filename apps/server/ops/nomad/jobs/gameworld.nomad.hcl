@@ -182,11 +182,34 @@ variable "reverse_return_map" {
   default = ""
 }
 
+# gm_setspeed admits a GM's /SETSPEED (port-only, not native; owner decision
+# 2026-10-12). Anything but "on" refuses it, as v1.150 has no such command.
+variable "gm_setspeed" {
+  type    = string
+  default = "on"
+}
+
 # alchemy_rates replaces each elixir's authored reinforcement chance with one
 # table by plus (port-only, not native; owner decision 2026-10-11): "on" is
 # +1 100% ... +11 5%, a comma list such as "100,80,70" is custom, "off" is
 # the original game. A malformed value stops GameWorld at boot.
 variable "alchemy_rates" {
+  type    = string
+  default = "on"
+}
+
+# alchemy_max_plus caps reinforcement (port-only, not native; owner decision
+# 2026-10-13): "on" is +11, a number is that plus, "off" is the original
+# game's own ceiling. A malformed value stops GameWorld at boot.
+variable "alchemy_max_plus" {
+  type    = string
+  default = "on"
+}
+
+# team_death_revive: "on" (native, the default; owner decision 2026-10-13)
+# revives a free-battle or arena death where it fell at any level; "off" is
+# port-only, the town rule. A malformed value stops GameWorld at boot.
+variable "team_death_revive" {
   type    = string
   default = "on"
 }
@@ -227,11 +250,58 @@ variable "beta_drop_mix" {
 }
 
 # shop_extra_goods adds NPC shop goods beyond the v1.150 stock (port-only,
-# not native; owner decision 2026-10-11). "on" sells the elixirs at 1M and
-# the Luck and Steady stones of degrees 1-3 at 5M in Jangan's smith (third
-# tab); "tab:item:price,..." is an operator list; "off" is the v1.150 stock.
+# not native; owner decisions 2026-10-11 and 2026-10-13). "on" sells the
+# elixirs at 1M and the degree 9 Luck, Steady, Astral, Athanasia and Repair
+# stones at 5M at Jangan's smith, the other degree 9 stones at 2M at Jangan's
+# grocer and the vigor potions at every herbalist (commerce/extragoods.go);
+# "tab:item:price,..." is an operator list; "off" is the v1.150 stock.
 # A malformed value stops GameWorld at boot.
 variable "shop_extra_goods" {
+  type    = string
+  default = "on"
+}
+
+# mall_extra_goods lists authored Item Mall packages the v1.150 mall does not
+# sell (port-only, not native; owner decision 2026-10-13). "on" adds the fur,
+# Halloween, pirate, holy knight and wing outfits at their authored prices
+# (commerce/mallextra.go); "tab:package,..." is an operator list; "off" is
+# the shipped mall. A malformed value stops GameWorld at boot.
+variable "mall_extra_goods" {
+  type    = string
+  default = "on"
+}
+
+# alchemy_no_assimilation removes stone assimilation (port-only, not native;
+# owner decision 2026-10-13): "on" makes a successful attribute or magic
+# stone change only its own stat; "off" is the original game. A malformed
+# value stops GameWorld at boot.
+variable "alchemy_no_assimilation" {
+  type    = string
+  default = "on"
+}
+
+# caravan_bandit_cap caps the bandits per caravan ambush (port-only, not
+# native; owner decision 2026-10-13): a count, or "off" for the original
+# game's uncapped count. A malformed value stops GameWorld at boot.
+variable "caravan_bandit_cap" {
+  type    = string
+  default = "16"
+}
+
+# beta_shop_only_degree9 keeps degree-9 Lucky Powder, magic stones and
+# attribute stones out of every monster drop (port-only, not native, beta
+# balance; owner 2026-10-13): players buy them from the Jangan shops. "off"
+# keeps today's drops.
+variable "beta_shop_only_degree9" {
+  type    = string
+  default = "on"
+}
+
+# elixir_drops_off keeps every elixir out of monster drops (port-only, not
+# native, beta balance; owner 2026-10-13): the blacksmith's shop_extra_goods
+# sells them instead, so "on" with a shop list lacking any of the eight
+# elixirs stops GameWorld at boot. "off" is the original game's drops.
+variable "elixir_drops_off" {
   type    = string
   default = "on"
 }
@@ -261,9 +331,19 @@ variable "beta_rare_rate" {
   default = "5"
 }
 
+# beta_seal_rates multiplies each rare seal's chance on top of beta_rare_rate
+# (port-only, not native, beta balance; owner 2026-10-13): degrees 1-8 make
+# Star, Moon and Sun three times as likely, degree 9 Star three times and
+# Moon five times, Sun as it is. "off" keeps every seal at beta_rare_rate.
+variable "beta_seal_rates" {
+  type    = string
+  default = "on"
+}
+
 # stack_sizes raises item stack caps per group (port-only, not native), e.g.
-# "potion=2000,elixir=50". Groups: potion, petpotion, elixir, luckypowder,
-# magicstone, attrstone (stones merge only with an equal assimilation value).
+# "potion=2000,elixir=50". Groups: potion, petpotion, universalpill, elixir,
+# luckypowder, magicstone, attrstone (stones merge only with an equal
+# assimilation value).
 # Empty keeps every itemdata cap; an unknown group or a cap outside 1..65535
 # stops GameWorld at boot.
 variable "stack_sizes" {
@@ -421,16 +501,25 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_PARTY_MASTERIES                = var.party_masteries
         SRO_STORAGE_AUTO_STACK             = var.storage_auto_stack
         SRO_REVERSE_RETURN_MAP             = var.reverse_return_map
+        SRO_GM_SETSPEED                    = var.gm_setspeed
         SRO_ALCHEMY_RATES                  = var.alchemy_rates
+        SRO_ALCHEMY_MAX_PLUS               = var.alchemy_max_plus
+        SRO_TEAM_DEATH_REVIVE              = var.team_death_revive
         SRO_BETA_GROWTH                    = var.beta_growth
         SRO_BETA_SKILL_EXP_RATE            = var.beta_skill_exp_rate
         SRO_BETA_DROP_RATE                 = var.beta_drop_rate
         SRO_BETA_GOLD_RATE                 = var.beta_gold_rate
         SRO_INSTANT_INVENTORY_EXPANSION    = var.instant_inventory_expansion
         SRO_BETA_RARE_RATE                 = var.beta_rare_rate
+        SRO_BETA_SEAL_RATES                = var.beta_seal_rates
         SRO_BETA_DROP_CAP                  = var.beta_drop_cap
         SRO_BETA_DROP_MIX                  = var.beta_drop_mix
         SRO_SHOP_EXTRA_GOODS               = var.shop_extra_goods
+        SRO_MALL_EXTRA_GOODS               = var.mall_extra_goods
+        SRO_ALCHEMY_NO_ASSIMILATION        = var.alchemy_no_assimilation
+        SRO_CARAVAN_BANDIT_CAP             = var.caravan_bandit_cap
+        SRO_ELIXIR_DROPS_OFF               = var.elixir_drops_off
+        SRO_BETA_SHOP_ONLY_DEGREE9         = var.beta_shop_only_degree9
         SRO_STACK_SIZES                    = var.stack_sizes
         SRO_PUBLIC_API_ADDR                = var.public_api_addr
         SRO_PUBLIC_API_TOKEN_PATH          = "${NOMAD_SECRETS_DIR}/public-api-token"

@@ -9,17 +9,16 @@ success never marks a human review or certifies native/server behavior.
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
-const directory = "temp/artifacts/ui-qa/reachability";
+import { UI_QA_ORIGIN } from "./settings.mjs";
+import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { fetchCatalogIdentity } from "./catalog-client.mjs";
+const directory = artifactDirectory( "reachability" );
 await mkdir( directory, { recursive: true } );
 const { browser, page } = await launchProbeBrowser( { viewport: { width: 1500, height: 1150 } } );
 const errors = [], external = [], evidence = [];
 let outcome = "incomplete", identity;
 page.on( "pageerror", error => errors.push( String( error ) ) );
-page.on( "request", request => {
-	if ( /^https?:/.test( request.url() ) && !request.url().startsWith( "http://127.0.0.1:5190/" ) ) {
-		external.push( request.url() );
-	}
-} );
+await guardReviewRequests( page.context(), external );
 
 /*
 ================
@@ -55,12 +54,11 @@ async function capture( frame, name ) {
 }
 
 try {
-	await page.goto( "http://127.0.0.1:5190/" );
+	await page.goto( UI_QA_ORIGIN + "/" );
 	await page.waitForFunction( () =>
 		document.querySelector( "#runtime-status" )?.textContent?.includes( "controls" )
 	);
-	identity = await page.request.get( "http://127.0.0.1:5190/__uiqa/catalog" ).then( response => response.json() )
-		.then( value => value.identity );
+	identity = await fetchCatalogIdentity();
 	let frame = await choose( "reach:party-member" );
 	assert.equal( await frame.locator( '[data-ui-id="party-member-kick:12"]' ).count(), 0 );
 	assert.ok( await frame.locator( '[data-ui-id="party-disband"]' ).isDisabled() );
@@ -120,9 +118,7 @@ try {
 	await capture( frame, "production-race-picked" );
 	assert.deepEqual( errors, [] );
 	assert.deepEqual( external, [] );
-	const finalIdentity = await page.request.get( "http://127.0.0.1:5190/__uiqa/catalog" ).then( response =>
-		response.json()
-	).then( value => value.identity );
+	const finalIdentity = await fetchCatalogIdentity();
 	assert.equal( finalIdentity.fingerprint, identity.fingerprint );
 	outcome = "passed";
 	console.log(
