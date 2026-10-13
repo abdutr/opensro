@@ -263,20 +263,21 @@ async function ledger() {
 	await choose( "Tools and availability" );
 	assert.equal( await page.locator( "#notes" ).inputValue(), "Unreviewed draft retained across navigation" );
 	const current = await fetchCatalog();
-	await page.evaluate( identity => {
+	await page.evaluate( async identity => {
+		const { SCENARIO_VERSION } = await import( "/tools/ui-qa/scenarios.ts" );
 		localStorage.removeItem( "opensro.ui-qa.drafts.v1" );
 		localStorage.setItem(
 			"opensro.ui-qa.reviews.v1",
 			JSON.stringify( [ {
 				item: "hud-tools",
-				context: "hud-tools|1000x700|dark|dpr:2|v1",
+				context: `hud-tools|1000x700|dark|dpr:2|v${SCENARIO_VERSION}`,
 				fingerprint: "old-source",
 				identity: { ...identity, fingerprint: "old-source" },
 				axes: { visual: "uncertain", interaction: "unreviewed", integration: "unsupported" },
 				notes: "Historical probe record",
 				status: "reviewed",
 				time: "2026-10-11T00:00:00Z",
-				version: 1,
+				version: SCENARIO_VERSION,
 				evidence: {}
 			} ] )
 		);
@@ -291,7 +292,7 @@ async function ledger() {
 	assert.equal( exported.reviews[0].status, "needs-recheck" );
 	assert.equal( exported.resources.length, 231 );
 	assert.equal( exported.panels.length, 32 );
-	assert.ok( exported.resources.some( row => row.availability === "unmapped" ) );
+	assert.ok( exported.resources.some( row => row.availability === "unmapped resource" ) );
 	await page.locator( "#notes" ).fill( "Rechecked in isolated probe, not native parity" );
 	await page.locator( "#save-review" ).click();
 	await page.waitForFunction( () => document.querySelector( "#save-status" )?.textContent?.startsWith( "Saved" ) );

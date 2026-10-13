@@ -89,7 +89,7 @@ export const prototypeScope = {
 			"Source/asset fingerprint, separate visual/interaction/integration review axes, explicit save and portable export"
 		],
 		boundary:
-			"No successful server response is invented to make a button appear functional. Unsupported submissions are visible in the trace. Specialty interaction remains blocked with A."
+			"No successful server response is invented to make a button appear functional. Unsupported submissions are visible in the trace. Specialty quantity, Shop and COS inventory mount with distinct close identities; closing the transport ends the local trade presentation. The preceding visible menu/request/reply flow and live settlement remain unverified."
 	},
 	C: {
 		meaning: "Outside prototype completion",
