@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { publishedAssets } from "../published-assets.mjs";
 import { clientBuildDefinitions } from "../build-metadata.mjs";
 import { UI_QA_PORT, UI_QA_CATALOG_PATH } from "./settings.mjs";
-import { catalogInputs, gitStamp, readCatalog } from "./catalog.mjs";
+import { catalogInputs, checkoutDirty, gitStamp, readCatalog } from "./catalog.mjs";
 
 /*
 ================
@@ -67,9 +67,12 @@ function reviewServer() {
 					const current = stamp();
 					if ( current !== catalogStamp ) catalog = null;
 					catalogStamp = current;
-					catalog ??= JSON.stringify( readCatalog() );
+					catalog ??= readCatalog();
+					// The dirty flag moves without any stamped input (an unstaged
+					// edit outside the watched root), so it is read per request.
+					const body = { ...catalog, identity: { ...catalog.identity, dirty: checkoutDirty() } };
 					response.writeHead( 200, { "Content-Type": "application/json", "Cache-Control": "no-store" } );
-					response.end( catalog );
+					response.end( JSON.stringify( body ) );
 				} catch ( error ) {
 					// The cause, with its machine paths, stays in the server log.
 					server.config.logger.error( `UI QA catalogue failed: ${String( error )}` );

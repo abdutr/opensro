@@ -107,10 +107,12 @@ function modifiedAt( file ) {
 ================
 gitStamp
 
-Changes whenever the checkout's codeSha or dirty state can: what HEAD names
-now (read on every call, so a branch switch is seen), the commit that ref
-points at (its loose file, else the packed refs), and the index. No process
-is spawned after the first call for a checkout.
+Changes whenever the checkout's codeSha can: what HEAD names now (read on
+every call, so a branch switch is seen), the commit that ref points at (its
+loose file, else the packed refs), and the index. No process is spawned
+after the first call for a checkout. An unstaged edit outside the watched
+root moves none of these, so the dirty flag is not cached behind this stamp:
+the server reads checkoutDirty on every catalogue request.
 ================
 */
 export function gitStamp( directory = checkout ) {
@@ -121,6 +123,24 @@ export function gitStamp( directory = checkout ) {
 		readOrEmpty( path.join( common, ref ) ) || String( modifiedAt( path.join( common, "packed-refs" ) ) ) :
 		head;
 	return [ head, commit, modifiedAt( path.join( own, "index" ) ) ].join( "\n" );
+}
+
+/*
+================
+checkoutDirty
+
+Whether the whole checkout has local changes, read now. A saved review or an
+export records the state at that moment, not at the last catalogue build.
+================
+*/
+export function checkoutDirty( directory = checkout ) {
+	// --no-optional-locks: a plain status refreshes and rewrites the index,
+	// which would move gitStamp and rebuild the catalogue on every request.
+	return execFileSync( "git", [ "--no-optional-locks", "status", "--porcelain" ], {
+		cwd: directory,
+		encoding: "utf8"
+	} )
+		.trim() !== "";
 }
 
 /*
@@ -195,7 +215,6 @@ export function readCatalog() {
 		};
 	} );
 	const codeSha = execFileSync( "git", [ "rev-parse", "HEAD" ], { cwd: checkout, encoding: "utf8" } ).trim();
-	const dirty = execFileSync( "git", [ "status", "--porcelain" ], { cwd: checkout, encoding: "utf8" } ).trim();
 	const sourceHash = hash(
 		sources.map( row => row.file + "\0" + row.text ).join( "\0" ) +
 			qa.map( file => path.relative( app, file ) + "\0" + fs.readFileSync( file, "utf8" ) ).join( "\0" )
@@ -205,7 +224,7 @@ export function readCatalog() {
 	const fontHash = fileHash( path.join( CLIENT_PUBLIC_ROOT, "assets/fonts/native-ui-font-atlas.json" ) );
 	const identity = { codeSha, sourceHash, assetHash, defineHash, fontHash };
 	return {
-		identity: { ...identity, fingerprint: hash( JSON.stringify( identity ) ), dirty: !!dirty },
+		identity: { ...identity, fingerprint: hash( JSON.stringify( identity ) ), dirty: checkoutDirty() },
 		// Repository-relative: the page never learns this machine's paths.
 		roots: {
 			checkout: ".",

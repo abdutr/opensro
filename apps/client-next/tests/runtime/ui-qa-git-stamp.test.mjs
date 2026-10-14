@@ -7,6 +7,8 @@ The review server keeps its catalogue until an input changes; its git state
 is stamped per request (catalog.mjs gitStamp). The stamp must move on a
 commit, on a branch switch and on a commit made on the new branch, and stay
 still when nothing changed, or old review judgments would apply to new code.
+An unstaged edit moves no stamp, so the dirty flag is read per request
+(checkoutDirty) and must see it.
 
 ===========================================================================
 */
@@ -17,8 +19,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { root } from "../../tools/project.mjs";
 
-const { gitStamp } = await import( pathToFileURL( "tools/ui-qa/catalog.mjs" ).href );
+const { checkoutDirty, gitStamp } = await import(
+	pathToFileURL( path.join( root, "tools/ui-qa/catalog.mjs" ) ).href
+);
 
 /*
 ================
@@ -56,4 +61,14 @@ test("the git stamp moves on a commit, a branch switch and a commit on the new b
 	writeFileSync( path.join( directory, "a.txt" ), "3" );
 	git( "commit", "-q", "-am", "three" );
 	assert.notEqual( gitStamp( directory ), switched, "a commit on the new branch moves the stamp" );
+});
+
+test("the dirty flag sees an unstaged edit that the stamp does not", t => {
+	const { directory } = scratchRepository();
+	t.after( () => rmSync( directory, { recursive: true, force: true } ) );
+	const clean = gitStamp( directory );
+	assert.equal( checkoutDirty( directory ), false, "a fresh commit is clean" );
+	writeFileSync( path.join( directory, "a.txt" ), "edited" );
+	assert.equal( gitStamp( directory ), clean, "an unstaged edit keeps the stamp" );
+	assert.equal( checkoutDirty( directory ), true, "the edit is dirty" );
 });
