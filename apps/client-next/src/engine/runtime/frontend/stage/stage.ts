@@ -3,14 +3,19 @@
 
 stage.ts - frontend scene admission and experimental terrain replacement
 
+A stage is one manifest and its world. The dock and the creation scenes
+are one prebuilt bundle each; the title streams the regions around its
+camera (regions.ts), as native does.
+
 ===========================================================================
 */
 import { decodeNativeTexture } from "@/engine/foundation/assets/native-texture";
-import type { WorldScene } from "@/engine/contracts/scene";
+import type { WorldCamera, WorldScene } from "@/engine/contracts/scene";
 import type { AssetOwner, AssetResult } from "@/engine/contracts/assets";
 import type { Renderer } from "@/engine/contracts/runtime";
 import type { StageManifest } from "@/engine/contracts/frontend";
 import { createStagePreload } from "./preload";
+import { createTitleRegions } from "./regions";
 /*
 ================
 createFrontendStage
@@ -18,6 +23,9 @@ createFrontendStage
 */
 export function createFrontendStage( assets: AssetOwner, renderer: Renderer, base: string ) {
 	const preload = createStagePreload( assets, base );
+	const regions = createTitleRegions( assets, renderer, base );
+	// Whether the installed stage streams regions instead of one bundle.
+	let streamed = false;
 	let manifest: StageManifest | null = null,
 		error: string | null = null,
 		worldRequested = false,
@@ -76,6 +84,8 @@ export function createFrontendStage( assets: AssetOwner, renderer: Renderer, bas
 		for ( const id of jobs.keys() ) assets.cancel( id );
 		jobs.clear();
 		renderer.cancelWorldUpdate();
+		regions.clear();
+		streamed = false;
 		manifest = null;
 		worldRequested = false;
 		admitted = false;
@@ -93,12 +103,22 @@ export function createFrontendStage( assets: AssetOwner, renderer: Renderer, bas
 		/*
 		================
 		install
+
+		world "regions" streams the regions around the camera (follow); the
+		manifest's own bundle is never loaded.
 		================
 		*/
-		install( path: string, detail: NonNullable<WorldScene["terrainDetail"]> = "distance" ) {
+		install(
+			path: string,
+			detail: NonNullable<WorldScene["terrainDetail"]> = "distance",
+			world: "bundle" | "regions" = "bundle"
+		) {
 			clear();
 			wanted = path;
 			terrainDetail = detail;
+			streamed = world === "regions";
+			// A streamed stage loads no bundle: its scenes are admitted by regions.
+			worldRequested = streamed;
 			const prepared = preload.take( path );
 			if ( prepared ) {
 				if ( prepared.kind === "manifest" ) jobs.set( prepared.job, { kind: "manifest", path } );
@@ -135,6 +155,14 @@ export function createFrontendStage( assets: AssetOwner, renderer: Renderer, bas
 					} else throw new Error( "Unexpected frontend resource completion" );
 				}
 				if ( !manifest && !jobs.size && assets.available() > 0 ) request( wanted, "manifest" );
+				if ( streamed ) {
+					regions.step();
+					const drawn = regions.drawn();
+					if ( drawn ) {
+						admitted = true;
+						sceneId = drawn;
+					}
+				}
 				if ( manifest && !worldRequested && assets.available() > 0 ) {
 					request( manifest.regionBundlePublicPath + new URL( wanted, base ).hash, "world" );
 					worldRequested = true;
@@ -149,6 +177,7 @@ export function createFrontendStage( assets: AssetOwner, renderer: Renderer, bas
 				error = String( e );
 				for ( const id of jobs.keys() ) assets.cancel( id );
 				jobs.clear();
+				regions.clear();
 				renderer.cancelWorldUpdate();
 			}
 		},
@@ -193,6 +222,18 @@ export function createFrontendStage( assets: AssetOwner, renderer: Renderer, bas
 		ready() {
 			const stats = renderer.worldStats();
 			return admitted && !error && stats.sceneId === sceneId && !stats.pendingGroups && !stats.pendingTextures;
+		},
+		/*
+		================
+		follow
+
+		Hands a streamed stage the camera about to be drawn. False while that
+		camera's region is not the drawn scene: the caller keeps showing the
+		last camera, as native's synchronous load freezes the frame.
+		================
+		*/
+		follow( camera: WorldCamera ): boolean {
+			return !streamed || regions.follow( camera );
 		},
 		manifest: () => manifest,
 		error: () => error,

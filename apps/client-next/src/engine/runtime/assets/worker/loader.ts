@@ -420,8 +420,10 @@ export function createLoader( send: ( result: AssetWorkerMessage, transfer: Tran
 					if ( part === "terrain" ) {
 						const terrain = await worlds.resolveTerrain( bytes, readWorldResource, url.pathname );
 						if ( disposed || controller.signal.aborted || pending.get( request.id ) !== controller ) return;
+						// A frontend stage's part drops the split streams only world
+						// picking reads, like its scene (prepareWorldScene).
 						const prepared = prepareWorldScene(
-							worlds.decode( terrain, false, {
+							worlds.decode( terrain, request.decode === "frontend-world", {
 								origin,
 								part
 							} )

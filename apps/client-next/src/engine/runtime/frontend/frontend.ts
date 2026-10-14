@@ -48,7 +48,8 @@ export function createFrontend(
 	let roster: NonNullable<SessionState["characters"]> = [];
 	let pointer: readonly [number, number] | null = null;
 	// Native CPSTitle 0x748630 disables terrain LOD; 0x741B80 restores it on release.
-	stage.install( "/assets/title/constantinople/manifest.json", "full" );
+	// The title streams the regions around its camera (stage/regions.ts).
+	stage.install( "/assets/title/constantinople/manifest.json", "full", "regions" );
 	return {
 		/*
 		================
@@ -219,7 +220,7 @@ export function createFrontend(
 				stageName = "title";
 				manifestInstalled = false;
 				lastPhase = "";
-				stage.install( "/assets/title/constantinople/manifest.json", "full" );
+				stage.install( "/assets/title/constantinople/manifest.json", "full", "regions" );
 			}
 			if ( session?.phase === "character-select" ) {
 				if ( flow.snapshot().phase === "world" ) {
@@ -417,7 +418,9 @@ export function createFrontend(
 			].includes( state.phase );
 			const frame = camera.step( playing || cameraMoving ? delta : 0 );
 			if ( frame?.complete ) cameraMoving = false;
-			if ( frame && state.phase !== "world" && state.phase !== "loading-world" ) {
+			// A streamed title keeps its last camera until the new camera's
+			// region is drawn (stage.ts follow), as native's load freezes the frame.
+			if ( frame && state.phase !== "world" && state.phase !== "loading-world" && stage.follow( frame.camera ) ) {
 				renderer.setWorldCamera( frame.camera );
 			}
 			if ( stage.error() ) flow.fail( stage.error()! );

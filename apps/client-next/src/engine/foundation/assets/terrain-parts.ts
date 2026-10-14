@@ -1,7 +1,7 @@
 /*
 ===========================================================================
 
-terrain-parts.ts - the outdoor regions' terrain the world stream keeps
+terrain-parts.ts - the outdoor regions' terrain an outdoor stream keeps
 
 An outdoor scene is a centre region and its neighbours. Their terrain is
 most of a scene's bytes, and a crossing keeps six of the nine regions, so
@@ -9,10 +9,16 @@ each region's terrain is requested once as its own part and composed into
 every scene that covers it.
 
 Parts share coordinates only within one anchor: the region whose corner
-is the scene origin. The anchor stays put while the player moves within
+is the scene origin. The anchor stays put while the camera moves within
 ANCHOR_RANGE regions of it; a farther scene picks a new anchor and every
-part is requested again. This module owns the anchor, the parts and the
-asset jobs that fetch them.
+part is requested again. Each instance owns its anchor, its parts and the
+asset jobs that fetch them. The world stream and the title stage each
+create one.
+
+Retention follows the native region cache: the regions a scene composes
+stay live, and a region the scene leaves waits in an idle list of
+IDLE_REGIONS, most recently released first, until it is used again or
+pushed out.
 
 ===========================================================================
 */
@@ -23,11 +29,13 @@ import { assetFailure } from "@/engine/foundation/assets/asset-recovery";
 // Regions an anchor serves on either axis. At 8 regions (15360 units) a
 // float32 coordinate still resolves 0.002 units, far below a pixel.
 const ANCHOR_RANGE = 8;
-// Parts kept around the centre after a scene is admitted: stepping back
-// across the last border reuses the column or row just left.
-const KEEP_RANGE = 2;
+// Idle regions the native cache keeps after their scene moves on:
+// RegionCacheMap_Construct 414EC0 sets the limit (+0x24) to 16,
+// ReleaseRef 415200 queues a released region and AcquireRef 415100
+// revives it. Stepping back across the last border reuses the row just left.
+const IDLE_REGIONS = 16;
 // One region bundle is about a megabyte; the world request limit applies.
-const TERRAIN_REQUEST_BYTES = 128 << 20;
+const TERRAIN_REQUEST_BYTES = 134217728;
 
 /*
 ================
@@ -35,18 +43,24 @@ createTerrainParts
 
 bundleOf names the published bundle of a region, or undefined when the
 catalogue has none. outdoor is true when a region has an outdoor bundle:
-the asset worker resolves only those as neighbours.
+the asset worker resolves only those as neighbours. decode is the asset
+kind the parts load as: "frontend-world" for a frontend stage's scenes.
 ================
 */
 export function createTerrainParts(
 	assets: Pick<AssetOwner, "available" | "request" | "take" | "cancel">,
 	origin: string,
 	bundleOf: ( region: number ) => string | undefined,
-	outdoor: ( region: number ) => boolean
+	outdoor: ( region: number ) => boolean,
+	decode: "world" | "frontend-world" = "world"
 ) {
 	let anchor: number | null = null;
 	const parts = new Map<number, WorldTerrainPart>();
 	const jobs = new Map<number, number>();
+	// The regions the admitted scene composes, and the released ones the
+	// cache still holds, most recently released first.
+	let live = new Set<number>();
+	let idle: number[] = [];
 
 	/*
 	================
@@ -74,6 +88,8 @@ export function createTerrainParts(
 		if ( job !== undefined ) assets.cancel( job );
 		jobs.delete( region );
 		parts.delete( region );
+		live.delete( region );
+		idle = idle.filter( held => held !== region );
 	}
 
 	/*
@@ -83,6 +99,8 @@ export function createTerrainParts(
 	*/
 	function clear(): void {
 		for ( const region of [ ...new Set( [ ...jobs.keys(), ...parts.keys() ] ) ] ) drop( region );
+		live = new Set();
+		idle = [];
 		anchor = null;
 	}
 	/*
@@ -160,7 +178,7 @@ export function createTerrainParts(
 					assets.request(
 						new URL( `${path}#anchor=${hex}&part=terrain`, origin ).href,
 						TERRAIN_REQUEST_BYTES,
-						"world"
+						decode
 					)
 				);
 			}
@@ -218,20 +236,33 @@ export function createTerrainParts(
 		pending: () => jobs.size,
 		/*
 		================
-		keepAround
+		keep
 
-		After a scene is admitted: drops parts and jobs farther than
-		KEEP_RANGE regions from its centre.
+		After a scene is admitted: its regions are live, every other held
+		part joins the idle list (the ones just released at its front), the
+		list keeps IDLE_REGIONS, and a job no live region needs is cancelled.
 		================
 		*/
-		keepAround( region: number ): void {
-			for ( const held of [ ...new Set( [ ...jobs.keys(), ...parts.keys() ] ) ] ) {
-				if (
-					Math.abs( (held & 255) - (region & 255) ) > KEEP_RANGE ||
-					Math.abs( (held >>> 8) - (region >>> 8) ) > KEEP_RANGE
-				) drop( held );
+		keep( regions: readonly number[] ): void {
+			const next = new Set( regions );
+			const released = [ ...live, ...parts.keys() ].filter( region =>
+				!next.has( region ) && !idle.includes( region )
+			);
+			live = next;
+			idle = [ ...new Set( [ ...released, ...idle ] ) ].filter( region => !next.has( region ) );
+			for ( const region of idle.slice( IDLE_REGIONS ) ) drop( region );
+			for ( const region of [ ...jobs.keys() ] ) {
+				if ( !live.has( region ) && !parts.has( region ) ) drop( region );
 			}
 		},
+		/*
+		================
+		held
+
+		The regions whose terrain is resident, live first.
+		================
+		*/
+		held: () => [ ...live ].filter( region => parts.has( region ) ).concat( idle ),
 		clear
 	};
 }

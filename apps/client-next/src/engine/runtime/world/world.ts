@@ -18,7 +18,14 @@ import type { Renderer } from "@/engine/contracts/runtime";
 import type { Pose } from "@/engine/contracts/gameplay";
 import type { CameraInput } from "@/engine/contracts/input";
 import { createCameraScripts } from "./camera/camera";
-import { createTerrainParts } from "./terrain-parts";
+import { createTerrainParts } from "@/engine/foundation/assets/terrain-parts";
+import {
+	missionRegion as catalogRegion,
+	outdoorRegion,
+	parseRegionCatalog,
+	REGION_CATALOG_PATH,
+	type RegionCatalog
+} from "@/engine/foundation/assets/region-catalog";
 import type { PresentationRandom } from "@/engine/contracts/presentation-random";
 import type { CameraScript } from "@/engine/contracts/camera-script";
 import { assetFailure, createAssetRecovery } from "@/engine/foundation/assets/asset-recovery";
@@ -35,15 +42,6 @@ type WorldResult = Extract<AssetResult, { kind: "world"; }>;
 
 /*
 ================
-regionKey
-================
-*/
-function regionKey( region: number ): string {
-	return `0x${region.toString( 16 ).padStart( 4, "0" )}`;
-}
-
-/*
-================
 createWorldStream
 ================
 */
@@ -55,18 +53,17 @@ export function createWorldStream(
 ) {
 	const scripts = createCameraScripts( random );
 	const recovery = createAssetRecovery();
-	let catalog: Record<string, { area?: string; source?: string; bundlePublicPath: string; }[]> | null = null;
+	let catalog: RegionCatalog | null = null;
 	/*
 	================
 	missionRegion
+
+	Title/create routes overlap mission sectors; never admit a frontend
+	route into gameplay (region-catalog.ts).
 	================
 	*/
 	function missionRegion( region: number ) {
-		const rows = catalog?.[regionKey( region )];
-		// Title/create routes overlap mission sectors. Catalog order is not a
-		// scene-purpose contract; never admit a frontend route into gameplay.
-		return rows?.find( row => row.source === "mission-outdoor-global" ) ??
-			rows?.find( row => row.area === "outdoor" ) ?? rows?.find( row => !row.area && !row.source );
+		return catalogRegion( catalog, region );
 	}
 	let dungeonBlock: number | undefined;
 	let displayedRegion: number | null = null;
@@ -84,13 +81,13 @@ export function createWorldStream(
 			result?: WorldResult;
 		}
 		| null = null;
-	// Region terrain composed into outdoor scenes (terrain-parts.ts). The
+	// Region terrain composed into outdoor scenes (foundation terrain-parts.ts). The
 	// worker resolves a neighbour only when it has an outdoor bundle.
 	const terrain = createTerrainParts(
 		assets,
 		origin,
 		region => missionRegion( region )?.bundlePublicPath,
-		region => !!catalog?.[regionKey( region )]?.some( row => row.area === "outdoor" )
+		region => outdoorRegion( catalog, region )
 	);
 	// The outdoor scene loading now, and its objects once decoded: it is
 	// admitted when every region of its terrain is resident.
@@ -130,7 +127,7 @@ export function createWorldStream(
 		let transferred = 0;
 		try {
 			renderer.adoptWorld( result.world, undefined, scene ? terrain.parts( scene.regions ) : undefined );
-			if ( scene ) terrain.keepAround( scene.region );
+			if ( scene ) terrain.keep( scene.regions );
 			soundTerrain = result.soundTerrain ?? [];
 			for ( const row of result.images ?? [] ) {
 				transferred++;
@@ -253,13 +250,7 @@ export function createWorldStream(
 			jobs.delete( id );
 			if ( result.kind === "error" ) throw assetFailure( `${job.path}: ${result.error}`, result.transient );
 			if ( job.kind === "catalog" && result.kind === "bytes" ) {
-				const value = JSON.parse( new TextDecoder( "utf-8", { fatal: true } ).decode( result.buffer ) );
-				if (
-					!value?.regionsById || typeof value.regionsById !== "object" || Array.isArray( value.regionsById )
-				) {
-					throw new Error( "Invalid region catalog" );
-				}
-				catalog = value.regionsById;
+				catalog = parseRegionCatalog( result.buffer );
 				transaction = { phase: "idle" };
 			} else if ( job.kind === "world" && result.kind === "world" ) {
 				if ( job.outdoor ) waiting = result;
@@ -381,7 +372,7 @@ export function createWorldStream(
 			load( `/assets/world/dungeon/regions/0x${pose.regionId.toString( 16 ).padStart( 4, "0" )}.json`, "world" );
 		} else if ( !catalog ) {
 			transaction = { phase: "catalog", region: pose.regionId };
-			load( "/assets/world/world-region-catalog.json", "catalog" );
+			load( REGION_CATALOG_PATH, "catalog" );
 		} else {
 			transaction = { phase: "loading", region: pose.regionId };
 			const entry = missionRegion( pose.regionId );

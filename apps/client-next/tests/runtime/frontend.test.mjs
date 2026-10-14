@@ -22,6 +22,33 @@ async function load( file ) {
 }
 const { createFrontendFlow } = await load( "src/engine/runtime/frontend/flow/flow.ts" );
 
+/*
+================
+stageAsset
+
+What a fixture asset owner returns for a frontend request: the region
+catalogue (one region with no outdoor neighbours, so a streamed scene is
+its objects and one terrain part), a terrain part in the requested anchor,
+a scene, or else the stage manifest.
+================
+*/
+function stageAsset( url, kind, manifest ) {
+	const parsed = new URL( url ), hash = new URLSearchParams( parsed.hash.slice( 1 ) );
+	if ( parsed.pathname === "/assets/world/world-region-catalog.json" ) {
+		const regionsById = { "0x6951": [ { bundlePublicPath: "/assets/fixture-region.json" } ] };
+		return { kind: "bytes", buffer: new TextEncoder().encode( JSON.stringify( { regionsById } ) ).buffer };
+	}
+	if ( kind === "frontend-world" && hash.get( "part" ) === "terrain" ) {
+		const originRegion = Number.parseInt( hash.get( "anchor" ), 16 );
+		return {
+			kind: "world",
+			world: { sceneId: "terrain", takeWorld: () => ({ scene: { originRegion, groups: [] }, bytes: 0 }) }
+		};
+	}
+	if ( kind === "frontend-world" ) return { kind: "world", world: { sceneId: "fixture" } };
+	return { kind: "bytes", buffer: new TextEncoder().encode( JSON.stringify( manifest ) ).buffer };
+}
+
 test("world restoration supersedes title loading and stays idempotent through admission", () => {
 	const flow = createFrontendFlow(), old = flow.snapshot().generation;
 	flow.resumeWorld();
@@ -367,12 +394,7 @@ test("dock Cancel emits logout once per departure while waiting for the session 
 		available: () => 8,
 		request: ( url, size, kind ) => {
 			const id = ++serial;
-			jobs.set(
-				id,
-				kind === "frontend-world" ?
-					{ kind: "world", world: { sceneId: "fixture" } } :
-					{ kind: "bytes", buffer: new TextEncoder().encode( JSON.stringify( manifest ) ).buffer }
-			);
+			jobs.set( id, stageAsset( url, kind, manifest ) );
 			return id;
 		},
 		take: id => {
@@ -437,12 +459,7 @@ test("full roster Create emits a timed native refusal and permits another attemp
 		available: () => 8,
 		request: ( url, size, kind ) => {
 			const id = ++serial;
-			jobs.set(
-				id,
-				kind === "frontend-world" ?
-					{ kind: "world", world: { sceneId: "fixture" } } :
-					{ kind: "bytes", buffer: new TextEncoder().encode( JSON.stringify( manifest ) ).buffer }
-			);
+			jobs.set( id, stageAsset( url, kind, manifest ) );
 			return id;
 		},
 		take: id => {
@@ -630,12 +647,7 @@ test("entry admission retains the dock through connecting and rejection, and lea
 		available: () => 8,
 		request: ( url, size, kind ) => {
 			const id = ++serial;
-			jobs.set(
-				id,
-				kind === "frontend-world" ?
-					{ kind: "world", world: { sceneId: "fixture" } } :
-					{ kind: "bytes", buffer: new TextEncoder().encode( JSON.stringify( manifest ) ).buffer }
-			);
+			jobs.set( id, stageAsset( url, kind, manifest ) );
 			return id;
 		},
 		take: id => {

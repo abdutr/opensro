@@ -1263,7 +1263,7 @@ export function createWorldRenderer(
 			for ( const part of terrain ) {
 				if (
 					part.origin !== replacement.originRegion || regions.has( part.region ) ||
-					!Number.isSafeInteger( part.bytes ) || part.bytes < 0 || replacement.residency === "frontend"
+					!Number.isSafeInteger( part.bytes ) || part.bytes < 0
 				) throw new Error( "Invalid world terrain part" );
 				regions.add( part.region );
 				whole += part.bytes;
