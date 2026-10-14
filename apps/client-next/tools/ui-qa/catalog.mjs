@@ -56,6 +56,49 @@ function fileHash( file ) {
 
 /*
 ================
+gitPath
+
+A path inside this checkout's git directory; a worktree's .git is a file
+naming it, which `git rev-parse --git-path` follows.
+================
+*/
+function gitPath( name ) {
+	return path.resolve(
+		checkout,
+		execFileSync( "git", [ "rev-parse", "--git-path", name ], { cwd: checkout, encoding: "utf8" } ).trim()
+	);
+}
+
+/*
+================
+catalogInputs
+
+Every file and tree readCatalog reads that lies outside the review server's
+watched root (apps/client-next): the published layouts and native resinfo,
+the define table, the font atlas, and the git state behind codeSha and
+dirty (HEAD, the index, the current branch ref and packed refs). The server
+watches them so a rebuild or a commit drops its cached catalogue.
+================
+*/
+export function catalogInputs() {
+	const branch = execFileSync( "git", [ "rev-parse", "--symbolic-full-name", "HEAD" ], {
+		cwd: checkout,
+		encoding: "utf8"
+	} ).trim();
+	return [
+		path.join( CLIENT_PUBLIC_ROOT, "assets/cif/layouts" ),
+		clientV150ResinfoRoot,
+		path.join( mediaExtractedRoot, "config/define.txt" ),
+		path.join( CLIENT_PUBLIC_ROOT, "assets/fonts/native-ui-font-atlas.json" ),
+		gitPath( "HEAD" ),
+		gitPath( "index" ),
+		gitPath( "packed-refs" ),
+		...(branch.startsWith( "refs/" ) ? [ gitPath( branch ) ] : [])
+	];
+}
+
+/*
+================
 readCatalog
 
 Recomputed on demand so a changed source or asset cannot retain an approval.

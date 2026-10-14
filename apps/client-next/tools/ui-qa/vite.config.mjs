@@ -5,12 +5,13 @@ vite.config.mjs - local-only review server, independent of game bootstrap
 No game/API proxy, no release entry, and no writes to shared assets.
 ===========================================================================
 */
+import fs from "node:fs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import { publishedAssets } from "../published-assets.mjs";
 import { clientBuildDefinitions } from "../build-metadata.mjs";
 import { UI_QA_PORT, UI_QA_CATALOG_PATH } from "./settings.mjs";
-import { readCatalog } from "./catalog.mjs";
+import { catalogInputs, readCatalog } from "./catalog.mjs";
 
 /*
 ================
@@ -22,8 +23,22 @@ function reviewServer() {
 		name: "local-ui-review",
 		configureServer( server ) {
 			// The catalogue walks every source and asks git twice: build it once
-			// and again only after a watched file changes, never per request.
-			let catalog = null;
+			// and again only after an input changes, never per request. Sources
+			// under this root reach the watcher. Inputs outside it (assets, the
+			// define table, the font atlas, git state) are stamped by mtime on
+			// each request: Vite's watcher ignores .git, so a commit or an index
+			// change would otherwise keep an old fingerprint.
+			const inputs = catalogInputs();
+			const stamp = () =>
+				inputs.map( input => {
+					try {
+						return fs.statSync( input ).mtimeMs;
+					} catch {
+						return 0;
+					}
+				} ).join( "," );
+			let catalog = null, catalogStamp = "";
+			server.watcher.add( inputs );
 			server.watcher.on( "all", () => {
 				catalog = null;
 			} );
@@ -48,6 +63,9 @@ function reviewServer() {
 					return response.end();
 				}
 				try {
+					const current = stamp();
+					if ( current !== catalogStamp ) catalog = null;
+					catalogStamp = current;
 					catalog ??= JSON.stringify( readCatalog() );
 					response.writeHead( 200, { "Content-Type": "application/json", "Cache-Control": "no-store" } );
 					response.end( catalog );

@@ -15,8 +15,11 @@ node node_modules/vite/bin/vite.js --config apps/client-next/tools/ui-qa/vite.co
 ```
 
 Open the loopback URL printed by Vite in an isolated Chrome profile. `settings.mjs`
-owns `UI_QA_PORT` and `UI_QA_ORIGIN`, shared by the server and probes; the port is
-separate from the operator console's default. Print the current URL with:
+owns `UI_QA_PORT` and `UI_QA_ORIGIN`, shared by the server and probes; the port
+(5191) is separate from the server observatory's 5190. When 5191 is taken, set
+`SRO_UI_QA_PORT` (an integer 1024-65535) for both the server and the probes; the
+server keeps `strictPort`, so a taken port fails instead of moving. Print the
+current URL with:
 
 ```powershell
 node --input-type=module -e 'import { UI_QA_ORIGIN } from "./apps/client-next/tools/ui-qa/settings.mjs"; console.log(UI_QA_ORIGIN)'
