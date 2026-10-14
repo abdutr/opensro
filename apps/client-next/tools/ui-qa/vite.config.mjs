@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { publishedAssets } from "../published-assets.mjs";
 import { clientBuildDefinitions } from "../build-metadata.mjs";
 import { UI_QA_PORT, UI_QA_CATALOG_PATH } from "./settings.mjs";
-import { catalogInputs, readCatalog } from "./catalog.mjs";
+import { catalogInputs, gitStamp, readCatalog } from "./catalog.mjs";
 
 /*
 ================
@@ -24,10 +24,11 @@ function reviewServer() {
 		configureServer( server ) {
 			// The catalogue walks every source and asks git twice: build it once
 			// and again only after an input changes, never per request. Sources
-			// under this root reach the watcher. Inputs outside it (assets, the
-			// define table, the font atlas, git state) are stamped by mtime on
-			// each request: Vite's watcher ignores .git, so a commit or an index
-			// change would otherwise keep an old fingerprint.
+			// under this root reach the watcher; inputs outside it (assets, the
+			// define table, the font atlas) are watched and stamped by mtime;
+			// the git state is stamped by gitStamp on each request, because
+			// Vite's watcher ignores .git and a commit, an index change or a
+			// branch switch would otherwise keep an old fingerprint.
 			const inputs = catalogInputs();
 			const stamp = () =>
 				inputs.map( input => {
@@ -36,7 +37,7 @@ function reviewServer() {
 					} catch {
 						return 0;
 					}
-				} ).join( "," );
+				} ).join( "," ) + "\n" + gitStamp();
 			let catalog = null, catalogStamp = "";
 			server.watcher.add( inputs );
 			server.watcher.on( "all", () => {

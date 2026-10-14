@@ -24,7 +24,8 @@ a page there is no environment: the page reads its own origin instead
 function uiQaPort() {
 	const raw = globalThis.process?.env?.SRO_UI_QA_PORT;
 	if ( raw === undefined || raw === "" ) return DEFAULT_UI_QA_PORT;
-	const port = Number( raw );
+	// Digits only: Number() alone would admit "0x1450", " 5196" and "5196.0".
+	const port = /^[0-9]+$/.test( raw ) ? Number( raw ) : NaN;
 	if ( !Number.isInteger( port ) || port < 1024 || port > 65535 ) {
 		throw Error( `SRO_UI_QA_PORT must be an integer port from 1024 to 65535, not ${JSON.stringify( raw )}` );
 	}

@@ -56,44 +56,91 @@ function fileHash( file ) {
 
 /*
 ================
-gitPath
+gitDirectories
 
-A path inside this checkout's git directory; a worktree's .git is a file
-naming it, which `git rev-parse --git-path` follows.
+A checkout's own git directory (a worktree's, named by its .git file) and
+the common one that holds refs, resolved once per checkout.
 ================
 */
-function gitPath( name ) {
-	return path.resolve(
-		checkout,
-		execFileSync( "git", [ "rev-parse", "--git-path", name ], { cwd: checkout, encoding: "utf8" } ).trim()
-	);
+const gitDirectoryCache = new Map();
+function gitDirectories( directory ) {
+	let found = gitDirectoryCache.get( directory );
+	if ( !found ) {
+		const ask = flag =>
+			path.resolve(
+				directory,
+				execFileSync( "git", [ "rev-parse", flag ], { cwd: directory, encoding: "utf8" } ).trim()
+			);
+		found = { own: ask( "--git-dir" ), common: ask( "--git-common-dir" ) };
+		gitDirectoryCache.set( directory, found );
+	}
+	return found;
+}
+
+/*
+================
+readOrEmpty
+================
+*/
+function readOrEmpty( file ) {
+	try {
+		return fs.readFileSync( file, "utf8" ).trim();
+	} catch {
+		return "";
+	}
+}
+
+/*
+================
+modifiedAt
+================
+*/
+function modifiedAt( file ) {
+	try {
+		return fs.statSync( file ).mtimeMs;
+	} catch {
+		return 0;
+	}
+}
+
+/*
+================
+gitStamp
+
+Changes whenever the checkout's codeSha or dirty state can: what HEAD names
+now (read on every call, so a branch switch is seen), the commit that ref
+points at (its loose file, else the packed refs), and the index. No process
+is spawned after the first call for a checkout.
+================
+*/
+export function gitStamp( directory = checkout ) {
+	const { own, common } = gitDirectories( directory );
+	const head = readOrEmpty( path.join( own, "HEAD" ) );
+	const ref = head.startsWith( "ref: " ) ? head.slice( 5 ) : "";
+	const commit = ref ?
+		readOrEmpty( path.join( common, ref ) ) || String( modifiedAt( path.join( common, "packed-refs" ) ) ) :
+		head;
+	return [ head, commit, modifiedAt( path.join( own, "index" ) ) ].join( "\n" );
 }
 
 /*
 ================
 catalogInputs
 
-Every file and tree readCatalog reads that lies outside the review server's
-watched root (apps/client-next): the published layouts and native resinfo,
-the define table, the font atlas, and the git state behind codeSha and
-dirty (HEAD, the index, the current branch ref and packed refs). The server
-watches them so a rebuild or a commit drops its cached catalogue.
+The files and trees readCatalog reads outside the review server's watched
+root (apps/client-next): the published layouts and native resinfo, the
+define table and the font atlas. The git state is stamped by gitStamp. The
+server watches these (recursively, so a file rewritten inside a tree is
+seen) and stamps their mtimes per request as well; a directory's own mtime
+moves only when an entry is created, removed or renamed.
 ================
 */
 export function catalogInputs() {
-	const branch = execFileSync( "git", [ "rev-parse", "--symbolic-full-name", "HEAD" ], {
-		cwd: checkout,
-		encoding: "utf8"
-	} ).trim();
 	return [
 		path.join( CLIENT_PUBLIC_ROOT, "assets/cif/layouts" ),
 		clientV150ResinfoRoot,
 		path.join( mediaExtractedRoot, "config/define.txt" ),
-		path.join( CLIENT_PUBLIC_ROOT, "assets/fonts/native-ui-font-atlas.json" ),
-		gitPath( "HEAD" ),
-		gitPath( "index" ),
-		gitPath( "packed-refs" ),
-		...(branch.startsWith( "refs/" ) ? [ gitPath( branch ) ] : [])
+		path.join( CLIENT_PUBLIC_ROOT, "assets/fonts/native-ui-font-atlas.json" )
 	];
 }
 
