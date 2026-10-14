@@ -12,6 +12,7 @@ import { createCountJobs } from "../../src/engine/foundation/gameplay/count-job"
 import { decodeSkillUi } from "../../src/engine/foundation/ui/skill-layout";
 import { decodeCosReferences } from "../../src/engine/foundation/ui/cos-command";
 import { herb, npc, openPanel, press, published } from "./recipe-input";
+import { FIXTURE_ITEMS } from "./fixture-items";
 
 /*
 ================
@@ -51,10 +52,9 @@ async function restoration( context: RecipeContext, npcMode: boolean, confirmati
 	game.inventory = [ {
 		...herb,
 		slot: 13,
-		refObjId: npcMode ? 3673 : 3828,
-		typeFlags: 0x6ec,
+		...(npcMode ? FIXTURE_ITEMS.questSkillPointPotion : FIXTURE_ITEMS.skillRestorationPotion),
 		quantity: 5,
-		name: npcMode ? "Curst Heart restoration potion" : "Skill Restoration Potion"
+		name: npcMode ? "Skill point potion" : "Skill Restoration Potion"
 	} ];
 	if ( npcMode ) game.restorationRevision = 1;
 	else {
@@ -231,13 +231,8 @@ export const commerceRecipes: readonly ExtendedRecipe[] = [
 		controls: [ "cos-" + mode + "-confirm", "cos-" + mode + "-cancel" ],
 		async open( context: RecipeContext ) {
 			context.state.gameplay.inventory = [
-				{
-					...herb,
-					slot: 13,
-					refObjId: mode === "revive" ? 2128 : 8985,
-					typeFlags: mode === "revive" ? 0x30ec : 0x66ec
-				},
-				{ ...herb, slot: 14, refObjId: 901, typeFlags: 0x08cc, quantity: 1, summon: { state: 4, rentals: [] } }
+				{ ...herb, slot: 13, ...(mode === "revive" ? FIXTURE_ITEMS.petRevival : FIXTURE_ITEMS.petExtension) },
+				{ ...herb, slot: 14, ...FIXTURE_ITEMS.rabbitSummoner, quantity: 1, summon: { state: 4, rentals: [] } }
 			];
 			await openPanel( context, "Inventory" );
 			await press( context, "slot:13", "right-activate" );
@@ -250,27 +245,34 @@ export const commerceRecipes: readonly ExtendedRecipe[] = [
 		family: "Dialogs",
 		source: "tests/runtime/count-job.test.mjs; foundation/gameplay/count-job.ts",
 		resources: [ "ifcompositeitemwnd" ],
-		controls: [ "composite-item:4001", "composite-item:4002", "composite-item-cancel" ],
+		controls: [
+			"composite-item:" + FIXTURE_ITEMS.returnScroll.refObjId,
+			"composite-item:" + FIXTURE_ITEMS.reverseReturnScroll.refObjId,
+			"composite-item-cancel"
+		],
 		async open( context ) {
 			const owner = createCountJobs();
 			owner.reference( {
-				refObjId: 10130,
-				typeFlags: 0x72ec,
+				refObjId: FIXTURE_ITEMS.goldTime.refObjId,
+				typeFlags: FIXTURE_ITEMS.goldTime.typeFlags,
 				nativeFields: { itemParam1_29c: 2419200 },
-				name: "Synthetic package (placeholder icon)",
-				icon: herb.icon
+				name: "Gold Time",
+				icon: FIXTURE_ITEMS.goldTime.icon
 			} );
 			for (
-				const [id, typeFlags, uses, name] of [ [ 4001, 0x09ec, 3, "Instant return" ], [
-					4002,
-					0x19ec,
-					0,
-					"Reverse return"
-				] ] as const
+				const [id, typeFlags, uses, name] of [
+					[ FIXTURE_ITEMS.returnScroll.refObjId, FIXTURE_ITEMS.returnScroll.typeFlags, 3, "Instant return" ],
+					[
+						FIXTURE_ITEMS.reverseReturnScroll.refObjId,
+						FIXTURE_ITEMS.reverseReturnScroll.typeFlags,
+						0,
+						"Reverse return"
+					]
+				] as const
 			) {
 				owner.reference( { refObjId: id, typeFlags, name } );
 				const payload = new Uint8Array( 13 ), view = new DataView( payload.buffer );
-				view.setUint32( 0, 10130, true );
+				view.setUint32( 0, FIXTURE_ITEMS.goldTime.refObjId, true );
 				view.setUint32( 4, 2419200, true );
 				view.setUint32( 8, id, true );
 				payload[12] = uses;
@@ -278,7 +280,7 @@ export const commerceRecipes: readonly ExtendedRecipe[] = [
 			}
 			context.state.gameplay.countJobs = owner.state();
 			await context.step();
-			await press( context, "count-job:10130" );
+			await press( context, "count-job:" + FIXTURE_ITEMS.goldTime.refObjId );
 		}
 	},
 	{

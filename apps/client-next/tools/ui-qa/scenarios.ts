@@ -14,6 +14,7 @@ import { extendedJourneys } from "./extended";
 
 import type { FixtureState } from "./fixture-state";
 import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
+import { FIXTURE_ITEMS } from "./fixture-items";
 
 export const SCENARIO_VERSION = 2;
 
@@ -271,8 +272,8 @@ export function stallOffers() {
 		price: 12345 + slot,
 		item: {
 			slot: 13 + slot,
-			refObjId: 3630,
-			typeFlags: 0x8ec,
+			refObjId: FIXTURE_ITEMS.hpHerb.refObjId,
+			typeFlags: FIXTURE_ITEMS.hpHerb.typeFlags,
 			quantity: slot + 1,
 			plus: 0,
 			durability: 0,

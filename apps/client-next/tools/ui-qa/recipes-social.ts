@@ -8,6 +8,7 @@ unsupported integration; no server action or permission grant is simulated.
 */
 import type { ExtendedRecipe, RecipeContext } from "./extended";
 import { fixtureGuild, guildMember, npc, openPanel, press } from "./recipe-input";
+import { FIXTURE_REFERENCES } from "./fixture-items";
 
 /*
 ================
@@ -87,7 +88,7 @@ export const socialRecipes: readonly ExtendedRecipe[] = [
 		resources: [ "ifmessagebox" ],
 		controls: [ "fortress-staff-yes", "fortress-staff-no" ],
 		async open( context: RecipeContext ) {
-			npc( context, 0x400000, "Fortress manager" );
+			npc( context, 0x400000, "Fortress manager", FIXTURE_REFERENCES.chFortressOfficial.refObjId );
 			const game = context.state.gameplay;
 			guildMember( context ).role = 1;
 			game.fortress = {
@@ -97,7 +98,7 @@ export const socialRecipes: readonly ExtendedRecipe[] = [
 					id: 1,
 					code: "FORTRESS_JANGAN",
 					nameStrId: "SN_FORTRESS_JANGAN",
-					officialRefObjId: 2011
+					officialRefObjId: FIXTURE_REFERENCES.chFortressOfficial.refObjId
 				} ],
 				wars: [ { id: 1, name: fixtureGuild( context ).name, flags: 1 } ],
 				registered: [],

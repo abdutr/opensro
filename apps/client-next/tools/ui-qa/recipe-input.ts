@@ -7,6 +7,7 @@ Recipes may seed snapshots but must not invent input targets or menu permissions
 */
 import type { RecipeContext } from "./extended";
 import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
+import { FIXTURE_ITEMS, FIXTURE_REFERENCES } from "./fixture-items";
 
 /*
 ================
@@ -43,11 +44,16 @@ export async function openPanel( context: RecipeContext, name: string ) {
 npc
 ================
 */
-export function npc( context: RecipeContext, capabilities: number, name = "Service official" ) {
+export function npc(
+	context: RecipeContext,
+	capabilities: number,
+	name = "Service official",
+	refObjId: number = FIXTURE_REFERENCES.ferryman.refObjId
+) {
 	context.state.entities = context.state.entities.filter( ( row ) => row.gid !== 99 );
 	const player = context.state.entities[0];
 	if ( !player ) throw Error( "NPC recipe requires a player snapshot" );
-	context.state.entities.push( { ...player, gid: 99, refObjId: 2011, kind: "npc", name } );
+	context.state.entities.push( { ...player, gid: 99, refObjId, kind: "npc", name } );
 	Object.assign( context.state.gameplay, {
 		target: 99,
 		targetCapabilities: capabilities,
@@ -91,11 +97,11 @@ export function guildMember( context: RecipeContext ) {
 
 export const herb = {
 	slot: 14,
-	refObjId: 3630,
-	typeFlags: 0x8ec,
+	refObjId: FIXTURE_ITEMS.hpHerb.refObjId,
+	typeFlags: FIXTURE_ITEMS.hpHerb.typeFlags,
 	quantity: 10,
 	name: "HP recovery herb",
-	icon: "item/etc/hp_potion_01.ddj",
+	icon: FIXTURE_ITEMS.hpHerb.icon,
 	plus: 0,
 	durability: 0,
 	variance: "0",

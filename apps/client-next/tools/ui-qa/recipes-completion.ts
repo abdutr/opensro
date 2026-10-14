@@ -10,6 +10,7 @@ import type { ExtendedRecipe, RecipeContext } from "./extended";
 import { OPENERS } from "../../tests/helpers/ui-entry-recipes.mjs";
 import { fixtureGuild, guildMember, herb, openPanel, press } from "./recipe-input";
 import { defaultGameOptions } from "../../src/engine/foundation/gameplay/game-options";
+import { FIXTURE_ITEMS } from "./fixture-items";
 
 /*
 ================
@@ -184,11 +185,9 @@ export const completionRecipes: readonly ExtendedRecipe[] = [
 			context.state.gameplay.inventory = [ {
 				...herb,
 				slot: 13,
-				refObjId: 3633,
-				typeFlags: 0x132c,
+				...FIXTURE_ITEMS.sword,
 				quantity: 1,
-				name: "Sword",
-				icon: "item/china/weapon/sword_01.ddj"
+				name: "Sword"
 			} ];
 			await openPanel( context, "Alchemy" );
 			await press( context, "slot:13", "double-activate" );

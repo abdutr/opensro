@@ -10,6 +10,7 @@ const { emptyStall, stallRequest } = await import( "../../src/engine/foundation/
 const { fortressPacket } = await import( "../../src/engine/foundation/gameplay/fortress.ts" );
 const { fortressProductionQuery } = await import( "../../src/engine/foundation/gameplay/fortress-production.ts" );
 const { npcGid } = await import( "../../src/engine/foundation/gameplay/npc-dialogue.ts" );
+const { FIXTURE_REFERENCES } = await import( "../../tools/ui-qa/fixture-items.ts" );
 const { createMagicOptionGrant } = await import(
 	"../../src/engine/runtime/simulation/worker/session/world/gameplay/inventory/magic-option/magic-option.ts"
 );
@@ -31,7 +32,13 @@ service window is requested from.
 */
 /** @param {Fixture} f */
 function talkTo( f ) {
-	f.state.entities.push( { ...f.state.entities[0], gid: OFFICIAL, refObjId: 2011, kind: "npc", name: "Official" } );
+	f.state.entities.push( {
+		...f.state.entities[0],
+		gid: OFFICIAL,
+		refObjId: FIXTURE_REFERENCES.chFortressOfficial.refObjId,
+		kind: "npc",
+		name: "Official"
+	} );
 	Object.assign( f.state.gameplay, {
 		target: OFFICIAL,
 		npcConversation: { phase: "menu", gid: npcGid( OFFICIAL ), dialogueRevision: 0 }
@@ -129,7 +136,7 @@ export const OPENERS = {
 					id: 1,
 					code: "FORTRESS_JANGAN",
 					nameStrId: "SN_FORTRESS_JANGAN",
-					officialRefObjId: 2011,
+					officialRefObjId: FIXTURE_REFERENCES.chFortressOfficial.refObjId,
 					requestFee: 1000000
 				} ],
 				wars: [ { id: 1, name: "Other Guild", flags: 0 } ],

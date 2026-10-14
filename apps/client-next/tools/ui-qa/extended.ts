@@ -17,6 +17,7 @@ import { reachabilityRecipes } from "./recipes-reachability";
 import { surfaceRecipes } from "./recipes-surfaces";
 import { completionRecipes } from "./recipes-completion";
 import { fixtureGuild, guildMember } from "./recipe-input";
+import { FIXTURE_ITEMS } from "./fixture-items";
 import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
 import type { FixtureState } from "./fixture-state";
 
@@ -153,7 +154,13 @@ export const extendedRecipes: readonly ExtendedRecipe[] = [
 		family: "Dialogs",
 		source: "runtime/ui/hud/reverse-return-hud.ts / runtime/ui/ui.ts item-use",
 		controls: [ "reverse-scroll-cancel", "reverse-scroll:2" ],
-		open: context => useItem( context, 4002, 0x19ec, "Reverse Return Scroll" )
+		open: context =>
+			useItem(
+				context,
+				FIXTURE_ITEMS.reverseReturnScroll.refObjId,
+				FIXTURE_ITEMS.reverseReturnScroll.typeFlags,
+				"Reverse Return Scroll"
+			)
 	},
 	{
 		id: "dialog:restoration",
@@ -208,7 +215,7 @@ export const extendedRecipes: readonly ExtendedRecipe[] = [
 					currencyMask: 22,
 					allowsPoints: true,
 					purchaseLimit: 5,
-					itemIds: [ 3630 ]
+					itemIds: [ FIXTURE_ITEMS.hpHerb.refObjId ]
 				}) ),
 				silk: 100,
 				giftSilk: 0,

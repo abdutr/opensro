@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { uiFixture } from "../helpers/ui-fixture.mjs";
 const { uiPanels, panelCloseId, closedPanel } = await import( "../../src/engine/foundation/ui/panels.ts" );
 const { emptyStall, stallRequest } = await import( "../../src/engine/foundation/gameplay/stall.ts" );
+const { FIXTURE_REFERENCES } = await import( "../../tools/ui-qa/fixture-items.ts" );
 import { OPENERS, SERVICE_WINDOWS } from "../helpers/ui-entry-recipes.mjs";
 import { entryEvidence } from "../helpers/ui-entry-evidence.mjs";
 
@@ -38,7 +39,13 @@ service window is requested from.
 */
 /** @param {Fixture} f */
 function talkTo( f ) {
-	f.state.entities.push( { ...f.state.entities[0], gid: OFFICIAL, refObjId: 2011, kind: "npc", name: "Official" } );
+	f.state.entities.push( {
+		...f.state.entities[0],
+		gid: OFFICIAL,
+		refObjId: FIXTURE_REFERENCES.chFortressOfficial.refObjId,
+		kind: "npc",
+		name: "Official"
+	} );
 	Object.assign( f.state.gameplay, { target: OFFICIAL, npcConversation: { phase: "menu", gid: OFFICIAL } } );
 }
 
@@ -52,9 +59,24 @@ transport, and its bag opens beside the shop.
 */
 /** @param {Fixture} f */
 function tradeWithTransport( f ) {
-	f.state.entities.push( { ...f.state.entities[0], gid: TRADER, refObjId: 2011, kind: "npc", name: "Trader" } );
+	f.state.entities.push( {
+		...f.state.entities[0],
+		gid: TRADER,
+		refObjId: FIXTURE_REFERENCES.chSpecialTrader.refObjId,
+		kind: "npc",
+		name: "Trader"
+	} );
 	f.state.gameplay.cosRecords = [
-		{ gid: TRANSPORT, refObjId: 100, band: 4, hp: 100, mp: 0, status: 0, dead: false, inventory: [] }
+		{
+			gid: TRANSPORT,
+			refObjId: FIXTURE_REFERENCES.transport.refObjId,
+			band: 2,
+			hp: 100,
+			mp: 0,
+			status: 0,
+			dead: false,
+			inventory: []
+		}
 	];
 	Object.assign( f.state.gameplay, {
 		target: TRADER,
@@ -77,10 +99,18 @@ for ( const panel of [ ...uiPanels(), ...Object.keys( SWEEP_WINDOWS ) ] ) {
 			for ( let i = 0; i < 16; i++ ) seen.presentation = f.ui.step( f.state, now += 100 ) ?? seen.presentation;
 		};
 		step();
+		const before = new Set( seen.presentation?.controls.map( control => control.id ) ?? [] );
 		const open = OPENERS[panel] ?? SWEEP_WINDOWS[panel] ??
 			(() => f.ui.event( { kind: "activate", id: "open-window:" + panel } ));
 		await open( f, step );
 		step();
+		// Witnesses alone can pass without the window opening: select-window:*
+		// buttons live in the shared main popup (ui.ts), present whenever any
+		// main window is open. The open step must also publish something new.
+		assert.ok(
+			seen.presentation?.controls.some( control => !before.has( control.id ) ),
+			`${panel} published no new controls: the window did not open`
+		);
 		const targets = panel === "Shop with a transport out" ? [ "Shop", "COS inventory" ] : [ panel ];
 		for ( const target of targets ) {
 			const evidence = entryEvidence( target, seen.presentation?.controls ?? [] );
@@ -191,7 +221,16 @@ const OVERLAYS = {
 	},
 	"pet status"( f ) {
 		f.state.gameplay.cosRecords ??= [
-			{ gid: TRANSPORT, refObjId: 100, band: 4, hp: 100, mp: 0, status: 0, dead: false, inventory: [] }
+			{
+				gid: TRANSPORT,
+				refObjId: FIXTURE_REFERENCES.transport.refObjId,
+				band: 2,
+				hp: 100,
+				mp: 0,
+				status: 0,
+				dead: false,
+				inventory: []
+			}
 		];
 	}
 };
