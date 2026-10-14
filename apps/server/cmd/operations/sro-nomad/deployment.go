@@ -28,11 +28,13 @@ import (
 	agentserver "opensro.online/server/internal/agent/server"
 	"opensro.online/server/internal/cluster/shard"
 	"opensro.online/server/internal/config"
+	"opensro.online/server/internal/config/shardsettings"
 	"opensro.online/server/internal/data/store"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/social/party"
 	"opensro.online/server/internal/gamedata"
 	"opensro.online/server/internal/security/auth"
+	"opensro.online/server/internal/transport"
 )
 
 const (
@@ -85,8 +87,10 @@ type deployment struct {
 	AgentPort             int
 	AgentProvisioningPort int
 	PrivateNetwork        bool
-	// Pprof turns on the GameWorld's profiling endpoints (TRANSPORT_PPROF),
-	// which serve only on its loopback control listener.
+	// Pprof turns on the first shard's profiling listener (TRANSPORT_PPROF),
+	// its own loopback-only socket (transport/pprof.go). On by default:
+	// profiles are taken only on request, and the mutex and block profilers
+	// stay off.
 	Pprof          bool
 	TaskUser       string
 	TaskUID        int
@@ -124,6 +128,10 @@ type shardDeployment struct {
 	// SRO_DEV_PORT_OFFSET, devstack.go), every other shard "off"
 	// (one host, one loopback port, one site).
 	PublicAPIAddr string
+	// PprofAddr is the profiling listener: the first shard serves it on
+	// transport.DefaultPprofAddr (moved by SRO_DEV_PORT_OFFSET) when
+	// profiling is on, every other shard not at all ("").
+	PprofAddr string
 }
 
 /*
@@ -240,9 +248,6 @@ func resolveDeployment(
 	if namespace == "" {
 		namespace = defaultNomadNamespace
 	}
-	if options.Pprof && hostNetwork != "loopback" {
-		return nil, fmt.Errorf("-pprof is for a loopback development cluster, not host network %q", hostNetwork)
-	}
 	if hostNetwork != "loopback" &&
 		namespace == defaultNomadNamespace {
 		return nil, fmt.Errorf(
@@ -289,7 +294,8 @@ func resolveDeployment(
 	if err != nil {
 		return nil, err
 	}
-	stackSizes, err := enterworld.StackSizesFromEnv()
+	// The operator's value, else the deployment default (shardsettings).
+	stackSizes, err := enterworld.ParseStackSizes(shardsettings.Lookup(enterworld.EnvStackSizes).Value(os.Getenv))
 	if err != nil {
 		return nil, err
 	}
@@ -361,9 +367,12 @@ func resolveDeployment(
 				err,
 			)
 		}
-		publicAPIAddr := "off"
+		publicAPIAddr, pprofAddr := "off", ""
 		if len(shards) == 0 {
 			publicAPIAddr = options.DevStack.publicAPIAddr()
+			if options.Pprof {
+				pprofAddr = options.DevStack.pprofAddr()
+			}
 		}
 		shards = append(shards, shardDeployment{
 			Definition:    definition,
@@ -371,6 +380,7 @@ func resolveDeployment(
 			TransportPort: transportPort,
 			AuthorityDir:  cleanAbsolute(authorityDir),
 			PublicAPIAddr: publicAPIAddr,
+			PprofAddr:     pprofAddr,
 		})
 	}
 	if requirePrerequisites && len(shards) == 0 {
@@ -652,7 +662,8 @@ func (deployment *deployment) gameVariables(
 		"stack_sizes":         deployment.StackSizes,
 		"public_api_addr":     game.PublicAPIAddr,
 		"party_masteries":     boolEnvValue(deployment.PartyMasteries),
-		"transport_pprof":     boolEnvValue(deployment.Pprof),
+		"transport_pprof":     boolEnvValue(game.PprofAddr != ""),
+		"pprof_addr":          pprofAddrValue(game.PprofAddr),
 	}))
 }
 
@@ -936,4 +947,19 @@ slashPath
 */
 func slashPath(path string) string {
 	return filepath.ToSlash(filepath.Clean(path))
+}
+
+/*
+================
+pprofAddrValue
+
+The pprof_addr job variable: the shard's listener, or the default for a
+shard that serves none (TRANSPORT_PPROF is then 0 and it is never bound).
+================
+*/
+func pprofAddrValue(addr string) string {
+	if addr == "" {
+		return transport.DefaultPprofAddr
+	}
+	return addr
 }

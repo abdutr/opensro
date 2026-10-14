@@ -178,6 +178,12 @@ func newGameplayPlane(
 	if items.ElixirDrops.Off() {
 		log.Infof("loot: elixir drops OFF (%s): the shop sells them", progression.EnvElixirDropsOff)
 	}
+	// SRO_ALCHEMY_MATERIAL_DROPS_OFF (port-only, not native): alchemy
+	// materials leave every monster drop. Nothing needs them on the beta.
+	items.MaterialDrops = progression.MaterialDropsFromEnv()
+	if items.MaterialDrops.Off() {
+		log.Infof("loot: alchemy material drops OFF (%s)", progression.EnvAlchemyMaterialDropsOff)
+	}
 	if err := items.ConfigureCommerce(devPaths.TextdataDir, extraGoods); err != nil {
 		return nil, fmt.Errorf("commerce catalogue: %w", err)
 	}
@@ -533,6 +539,18 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	game.deps.MasteryTotalOverride = masteryOverride
 	// Port-only, not native: storage quick moves prefer a matching stack.
 	game.deps.StorageAutoStack = action.StorageAutoStackFromEnv()
+	// Port-only, not native: the Bandit Den scroll counts down half as long,
+	// and the client's delay bar learns it at world entry.
+	game.items.FastDenReturn = action.FastDenReturnFromEnv()
+	game.deps.FastDenReturn = game.items.FastDenReturn
+	if game.items.FastDenReturn {
+		log.Infof("return: Bandit Den scroll countdown halved (%s)", action.EnvFastDenReturn)
+	}
+	// Port-only, not native: no transport comes out during the Den countdown.
+	game.items.DenNoTransportSummon = action.DenNoTransportSummonFromEnv()
+	if game.items.DenNoTransportSummon {
+		log.Infof("return: no transport summon during the Bandit Den countdown (%s)", action.EnvDenNoTransportSummon)
+	}
 	// Port-only, not native: a GM's /SETSPEED.
 	game.items.GMSetSpeed = action.GMSetSpeedFromEnv()
 	if game.items.GMSetSpeed {

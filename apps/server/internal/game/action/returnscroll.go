@@ -48,6 +48,9 @@ type pendingReturn struct {
 	// destination is a reverse return's chosen point; nil returns to the
 	// appointed rebirth point.
 	destination *travelPoint
+	// thiefDen marks the Bandit Den scroll's cast (denreturn.go keys its
+	// port-only transport rule on it).
+	thiefDen bool
 }
 
 /*
@@ -202,12 +205,14 @@ func (rt *Runtime) beginReturnScroll(division string, c *enterworld.Character, r
 			return false
 		}
 		destination = &gate
+		duration = denReturnDuration(duration, rt.FastDenReturn)
 	default:
 		return false
 	}
 	at := rt.liveSpawn(simulation.WorldKey(division, c.Name), c, now)
 	if !rt.startReturnCast(returnCast{division: division, character: c, row: row, slot: request.Slot,
-		typeWord: request.TypeWord, duration: duration, destination: destination, now: now, mode: mode}, result) {
+		typeWord: request.TypeWord, duration: duration, destination: destination, now: now, mode: mode,
+		thiefDen: ref.ReturnDestination == "THIEFDEN"}, result) {
 		return false
 	}
 	if point, ok := recordedPoint(c, at); ok {
@@ -238,6 +243,8 @@ type returnCast struct {
 	// mode is the channel-11 teleport mode; zero is a return's 1. The skin
 	// change reloads in place under mode 3 (4EFFC0).
 	mode uint8
+	// thiefDen marks the Bandit Den scroll's cast.
+	thiefDen bool
 }
 
 /*
@@ -272,7 +279,7 @@ func (rt *Runtime) startReturnCast(cast returnCast, result *OpResult) bool {
 	rt.ClearCombatIntent(division, c.Name)
 	rt.Pending.Clear(grounditem.PendingKey(division, c.Name))
 	rt.returnCasts.Store(key, pendingReturn{division: division, name: c.Name, character: c, due: now + cast.duration,
-		generation: rt.returnGeneration.Add(1), destination: cast.destination})
+		generation: rt.returnGeneration.Add(1), destination: cast.destination, thiefDen: cast.thiefDen})
 	status := teleportState(c, mode)
 	stop := wire.Frame{Opcode: wire.OpObjectSourceCorrection, Payload: wire.ObjectSourceCorrection{Gid: enterworld.ObjectIDForCharacter(c), Position: wire.Position{RegionID: spawn.RegionID, X: float32(spawn.X), Y: float32(spawn.Y), Z: float32(spawn.Z), Heading: spawn.Angle}}.Encode()}
 	// HandleItemUse publishes the item's visual after the success.
@@ -402,7 +409,7 @@ func (rt *Runtime) completeReturnScroll(job pendingReturn, now int64) ([]wire.Fr
 	cancelled := false
 	currentWorld := instance.ID(domain.CharacterWorldInstance(c))
 	rt.bindResidentRegion(key, now)
-	if !rt.deps.Update(c, "return-scroll-complete", func() bool {
+	if !rt.deps.UpdateDeferred(c, "return-scroll-complete", func() bool {
 		if c.DeletePending || c.NativeTeleportMode == 0 {
 			rt.returnCasts.Delete(key)
 			return false
@@ -451,7 +458,7 @@ func (rt *Runtime) completeReturnScroll(job pendingReturn, now int64) ([]wire.Fr
 	clearMode := teleportState(c, 0)
 	membership, moved := rt.moveWorldMembership(job.division, c, currentWorld, arrival.world)
 	if !moved {
-		rt.deps.Update(c, "return-scroll-world-rollback", func() bool {
+		rt.deps.UpdateDeferred(c, "return-scroll-world-rollback", func() bool {
 			rt.Worlds.Update(key, func() simulation.WorldState { return previous }, func(w *simulation.WorldState) { *w = previous })
 			c.World = previousWorld
 			return true
@@ -468,7 +475,7 @@ func (rt *Runtime) completeReturnScroll(job pendingReturn, now int64) ([]wire.Fr
 			rt.restorePopulationSession(membership)
 		}
 		rt.restoreCompanionRelocation(previousPets)
-		rt.deps.Update(c, "return-scroll-entry-rollback", func() bool {
+		rt.deps.UpdateDeferred(c, "return-scroll-entry-rollback", func() bool {
 			rt.Worlds.Update(key, func() simulation.WorldState { return previous }, func(w *simulation.WorldState) { *w = previous })
 			c.World = previousWorld
 			return true
@@ -519,7 +526,12 @@ retireReturnForReentry
 */
 func (rt *Runtime) retireReturnForReentry(division string, c *enterworld.Character) {
 	rt.jobDresses.Delete(simulation.WorldKey(division, c.Name))
-	rt.endJobActivation(division, c)
+	// A mode-3 reload re-enters the same actor in place (4E0B50 keeps the
+	// object and its state timers), so a suit's activation wait survives
+	// the reload that follows its dress (reloadJobDress).
+	if c.NativeTeleportMode != skinTeleportMode {
+		rt.endJobActivation(division, c)
+	}
 	rt.deps.Update(c, "return-scroll-retire-reentry", func() bool {
 		rt.returnCasts.Delete(simulation.WorldKey(division, c.Name))
 		if c.NativeTeleportMode == 0 {

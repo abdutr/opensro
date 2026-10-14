@@ -248,6 +248,14 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 			}
 		}
 	}()
+	// Registered last, so it runs first: the stuck event a step raised is
+	// answered before the formation and pickup cleanups above (petstuck.go).
+	var answerStuck func() []simulation.Frame
+	defer func() {
+		if answerStuck != nil {
+			output = append(output, answerStuck()...)
+		}
+	}()
 	// The session binds the canonical character pointer. Avoid searching the
 	// division's entire saved-character population on every pet tick.
 	var snapshot *enterworld.Character
@@ -294,6 +302,9 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 	// Relocation and summons build new followers; every tick installs the one
 	// planner they all route with.
 	state.follower.SetRoutePlanner(rt.PlanCompanionRoute)
+	answerStuck = func() []simulation.Frame {
+		return rt.answerPetStuck(key, state, snapshot, cos, ref.TidWord, nowMs)
+	}
 	if state.displacement != nil {
 		if nowMs < state.displacement.untilMs {
 			return state.follower.Stop(nowMs)
@@ -339,6 +350,10 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		result := rt.applyCosGroundAt(key.division, state.character, q, cosGroundAttempt{now: time.UnixMilli(nowMs)})
 		result = finishPendingCosPickup(state, result)
 		state.public = append(state.public, result.Broadcast...)
+		// A shared pickup's receipt and the party loot notices belong to other
+		// members (routeSharedPickup, partyLootNotice); advancePets drains
+		// them beside the kill-settlement frames.
+		state.others = append(state.others, result.Recipients...)
 		for _, f := range result.Frames {
 			frames = append(frames, simulation.Frame{Opcode: f.Opcode, Payload: f.Payload, Current: f.Current, Scope: f.Scope})
 		}

@@ -139,9 +139,15 @@ type Metrics struct {
 	SlowHooks   map[string]SlowHookStats `json:"slow_hooks"`
 	// Divisions whose own work in a tick ran >= 100 ms, by division ID.
 	SlowDivisions map[string]SlowHookStats `json:"slow_divisions"`
+	// TickCommit counts the ticks' batched authority commits (timing.go);
+	// tick_phase_ms.commit is their flush time.
+	TickCommit TickCommitStats `json:"tick_commit"`
 	// MonsterNavigation is the world's route-plan and path-clip counters
 	// (simulation.NavigationMetrics), when the GameWorld installed them.
 	MonsterNavigation map[string]uint64 `json:"monster_navigation,omitempty"`
+	// Runtime is the Go runtime's GC pauses, scheduling latency, heap and
+	// goroutines since start (runtime_stats.go).
+	Runtime RuntimeStats `json:"runtime"`
 }
 
 /*
@@ -236,6 +242,7 @@ func (h *Hub) Metrics() Metrics {
 	if read := h.navigationMetrics.Load(); read != nil && *read != nil {
 		metrics.MonsterNavigation = (*read)()
 	}
+	metrics.Runtime = runtimeStats()
 	return metrics
 }
 

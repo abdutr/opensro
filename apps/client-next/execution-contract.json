@@ -1602,6 +1602,7 @@
 			"consumer": "src/engine/foundation/ui/item-tooltip-stats.ts",
 			"provider": "src/engine/runtime/ui/ui.ts",
 			"functions": [
+				"hudCopy",
 				"lookup"
 			]
 		},
@@ -1914,6 +1915,13 @@
 			"provider": "src/engine/runtime/assets/worker/loader.ts",
 			"functions": [
 				"callback:createBackgroundInstaller:1"
+			]
+		},
+		{
+			"consumer": "src/engine/runtime/frontend/frontend.ts",
+			"provider": "src/engine/runtime/assets/assets.ts",
+			"functions": [
+				"takeDegradations"
 			]
 		},
 		{
@@ -3237,6 +3245,13 @@
 		},
 		{
 			"file": "src/engine/runtime/characters/actor-appearance.ts",
+			"expression": "renderer.enchantSparks",
+			"function": "resolve",
+			"kind": "callback",
+			"reason": "Port-only, not native: the per-actor phase reads the renderer's Experimental enchant-sparks setting when it assembles an appearance."
+		},
+		{
+			"file": "src/engine/runtime/characters/actor-appearance.ts",
 			"expression": "wornEquipment",
 			"function": "resolve",
 			"kind": "callback",
@@ -3775,8 +3790,8 @@
 		{
 			"file": "src/engine/runtime/runtime.ts",
 			"function": "frame",
-			"sourceSha256": "98291008053e8225b8ca2ece5e7a17f893fdb2275124d8fd6789ebaee4ee1819",
-			"reason": "AEBD90 synchronously waits for visibility before AEC180 advances EFP ticks. The browser yields at the GPU readback barrier; the runtime retains the current frame and schedules the next RAF only after completion. Ordinary frames do not await a readback. Device disposal cancels pending mapping.",
+			"sourceSha256": "da3bcbb083dbb33f1e0476644ebbbecdea8f8061b8b73c9ef7ee787d4a531352",
+			"reason": "AEBD90 synchronously waits for visibility before AEC180 advances EFP ticks. The browser yields at the GPU readback barrier; the runtime retains the current frame and schedules the next RAF only after completion. Ordinary frames do not await a readback. A hidden frame renders only while a world entry awaits game-ready, under the same barrier: native keeps updating while inactive (A0F430 OnUpdate; A11650 skips drawing) and finishes loading in CPSMission_OnUpdate (728E10). Device disposal cancels pending mapping.",
 			"evidence": "tests/fixtures/native/bsr-query-native.json",
 			"nativeFunction": 11451792,
 			"tests": [

@@ -344,11 +344,15 @@ timeoutMessage
 	/*
 ================
 busy
+
+A Magic Pop roll does not hold the bag: native reads its busy byte only
+for the Magic Pop window's own slot (CIFItemSlot_DispatchActivation
+567520..567535, message 0x8C), never for CIFInventory.
 ================
 	*/
 	function busy() {
 		return pending !== null || mall.pending() || timedOut || alchemy.state().pending ||
-			[ "rolling", "waiting" ].includes( gacha.state().phase ) || magicOption.state().phase === "waiting";
+			magicOption.state().phase === "waiting";
 	}
 	/*
 ================
@@ -1565,7 +1569,11 @@ receive
 					plus: next?.plus ?? 0,
 					previousPlus: old.plus,
 					durability: next?.durability ?? 0,
-					previousDurability: old.durability
+					previousDurability: old.durability,
+					// 0xB651 is a magic or attribute stone's answer.
+					...(op === 0xb651 && flags & 0x10 && next ?
+						{ stone: { before: present( old ), after: present( { ...next, slot: n } ) } } :
+						{})
 				};
 				for ( const cue of alchemy.result( n, flags, null, detail ) ) play( cue );
 				return true;

@@ -355,6 +355,8 @@ export function createGameplay(
 	let gmItems = gmItemReferences( {} );
 	// The server's port-only storage auto-stack rule (storageAutoStack).
 	let storageAutoStack = false;
+	// The server's port-only Bandit Den countdown rule (fastDenReturn).
+	let fastDenReturn = false;
 	// The port-only reverse return map table (reverse-return-map.ts).
 	let reverseMapPoints: readonly ReverseMapPoint[] = [];
 	let warnings = [ false, false ];
@@ -486,7 +488,12 @@ sent. A cost whose vital inputs are unknown waits for the server's answer.
 			body: local.appearanceState?.[2] ?? 0,
 			mounted: !!local.mountedOn,
 			seated: local.movementMode === MOVEMENT_SEATED,
-			equipped: inventory.state().inventory
+			equipped: inventory.state().inventory,
+			// 59D870 reads the effects on the caster and its running cast.
+			effects: combat.state().attachedEffects.filter( effect => effect.gid === localGid ).map( effect =>
+				catalog.find( row => row.id === effect.skill )?.admit?.replace
+			),
+			casting: combat.state().casts.some( cast => cast.caster === localGid && cast.cancelledAtMs === undefined )
 		} );
 		return admission.kind === "admit";
 	}
@@ -1098,6 +1105,7 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 			inventory.takeBindingMoves();
 			gmItems = gmItemReferences( value );
 			storageAutoStack = (value as { storageAutoStack?: unknown; } | null)?.storageAutoStack === true;
+			fastDenReturn = (value as { fastDenReturn?: unknown; } | null)?.fastDenReturn === true;
 			reverseMapPoints = decodeReverseMapPoints(
 				(value as { reverseMapPoints?: unknown; } | null)?.reverseMapPoints
 			);
@@ -3401,18 +3409,34 @@ Packet handling must not depend on which HUD panel is currently open.
 					dirty = true;
 					return true;
 				}
-				// A despawn leaves kind-3 windows alone: retail erases one only on the
-				// 0x3691 zero pair or the 0x3369/0x366A reset sweep (6E6270).
+				// 77A570 case 1 (CPSMission_OnCosPetExpUpdate0x3508): the server's
+				// detach notice (v1.188 0x30C9 type 1, 4D2140, sent on every release
+				// and COS death) is the only thing that drops an owned companion:
+				// CIFCOSManager_RemoveCompanion (6F2900) takes its status icon, its
+				// command panel and its record, and its open bag window closes.
+				if ( frame.opcode === 0x3508 && frame.payload[4] === 1 ) {
+					if ( frame.payload.length !== 5 ) throw Error( "Invalid COS removal" );
+					const gid = new DataView( frame.payload.buffer, frame.payload.byteOffset, 4 ).getUint32( 0, true );
+					if ( cosRecords.has( gid ) ) {
+						cosSelection.remove( gid, cosRecords );
+						cosRecords.delete( gid );
+						if ( activeCos?.gid === gid ) {
+							activeCos = undefined;
+							cosResult = undefined;
+							cosError = null;
+						}
+						dirty = true;
+					}
+					return true;
+				}
+				// A despawn only takes the object out of view. An owned companion that
+				// leaves view (or relocates to its owner, despawn then spawn) keeps its
+				// record and status icon, as native: only the 0x3508 removal above
+				// drops it. Kind-3 windows likewise stay: retail erases one only on
+				// the 0x3691 zero pair or the 0x3369/0x366A reset sweep (6E6270).
 				if ( frame.opcode === 0x36ab && frame.payload.length === 4 ) {
 					const gid = new DataView( frame.payload.buffer, frame.payload.byteOffset, 4 ).getUint32( 0, true );
-					cosSelection.remove( gid, cosRecords );
-					cosRecords.delete( gid );
 					if ( selectionDecal?.kind === "target" && selectionDecal.gid === gid ) selectionDecal = null;
-					if ( activeCos?.gid === gid ) {
-						activeCos = undefined;
-						cosResult = undefined;
-						cosError = null;
-					}
 					targeting.remove( gid );
 					combat.remove( gid );
 					if ( skillPress.queued()?.command.gid === gid ) skillPress.cancel();
@@ -3534,7 +3558,7 @@ Packet handling must not depend on which HUD panel is currently open.
 						i.slot === frame.payload[1] && i.typeFlags === (frame.payload[4]! | frame.payload[5]! << 8)
 					) :
 					undefined;
-				const cast = used ? returnScrollCast( used, now ) : undefined;
+				const cast = used ? returnScrollCast( used, now, fastDenReturn ) : undefined;
 				// 756CF0 compares the bag slot before and after a 0xB06D pickup.
 				const pickupSlot = frame.opcode === 0xb06d && frame.payload[0] === 1 && frame.payload[1] === 6 &&
 						frame.payload.length > 3 && frame.payload[2] !== 254 ?

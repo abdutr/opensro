@@ -32,7 +32,7 @@ func (rt *Runtime) advancePetSatiety(key petOwnerKey, nowMs int64) []simulation.
 		return nil
 	}
 	var frames []simulation.Frame
-	rt.deps.Update(state.character, "cos-satiety", func() bool {
+	rt.deps.UpdateDeferred(state.character, "cos-satiety", func() bool {
 		c := state.character
 		pet := c.CompanionByGID(key.gid)
 		ref, valid := rt.cosReference(pet)
@@ -43,7 +43,7 @@ func (rt *Runtime) advancePetSatiety(key petOwnerKey, nowMs int64) []simulation.
 			pet.Summoned = false
 			pet.StateFlags &^= cosStateSummoned
 			pet.RefreshRentalTimes(nowMs / 1000)
-			for _, frame := range rt.retireCosRuntime(key.division, c, pet.GID) {
+			for _, frame := range append(rt.retireCosRuntime(key.division, c, pet.GID), cosRemovalNotice(pet.GID)) {
 				frames = append(frames, simulation.Frame{Opcode: frame.Opcode, Payload: frame.Payload})
 			}
 			despawn := wire.Frame{Opcode: wire.OpObjectDespawn, Payload: wire.ObjectDespawn{Gid: pet.GID}.Encode()}

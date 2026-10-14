@@ -439,6 +439,12 @@ func (rt *Runtime) HandleItemUse(
 				result = itemUseFailure(errCodeCantActivateCart)
 				return false
 			}
+			// Port-only, not native (denreturn.go): no transport during the
+			// Bandit Den countdown; the same 0x69 as the native mode-1 refusal.
+			if rt.denTransportRefused(divisionID, character, cosRef.TidWord>>11 == cosBandTransport) {
+				result = itemUseFailure(0x69)
+				return false
+			}
 			// #721, the summon side of the stolen-goods rule: a thief (job
 			// state 2) cannot summon a transport (TID 1/2/3/2) in a protected
 			// region (IsBattleField clear), the Thieves' Den included: v1.188
@@ -473,6 +479,12 @@ func (rt *Runtime) HandleItemUse(
 				Summoned:         true,
 				Mounted:          true,
 				StateFlags:       3,
+			}
+			// 4404A1..4404DA: the creation arm keeps the reference capacity
+			// (+0x224) for everything but pets, so a transport carries a
+			// cargo bag of its authored size; a riding horse authors none.
+			if cosRef.InventoryCapacity > 0 {
+				pet.Container = &domain.COSContainer{Capacity: cosRef.InventoryCapacity}
 			}
 			// Validate the complete private record before inventory debit. Native
 			// 4FB2C0 automatically binds both riding and transport vehicles.

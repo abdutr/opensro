@@ -100,13 +100,7 @@ func (rt *Runtime) advanceOwnerFormation(step petCombatStep) []simulation.Frame 
 		Surface: rt.CompanionSurfaceHeight, Constrain: step.constraint,
 	})...)
 	if relocated {
-		state.generation++
-		state.relocatedAtMs = step.nowMs
-		state.summonedAtMs = 0
-		if view := rt.companionPresentation(step.key.division, state, step.pet); view != nil {
-			frames = append(frames, simulation.Frame{Opcode: wire.OpObjectDespawn, Payload: wire.ObjectDespawn{Gid: step.pet.GID}.Encode()})
-			frames = append(frames, view.SpawnFrames(step.nowMs)...)
-		}
+		frames = append(frames, rt.publishPetRelocation(step.key, state, step.pet, step.nowMs)...)
 	}
 	return frames
 }
@@ -124,7 +118,7 @@ func (rt *Runtime) setCompanionFollowSpeed(step petCombatStep, factor float32) [
 		return nil
 	}
 	var frames []simulation.Frame
-	rt.deps.Mutate(step.state.character, "mercenary-follow-speed", func() {
+	rt.deps.MutateDeferred(step.state.character, "mercenary-follow-speed", func() {
 		pet := step.state.character.CompanionByGID(step.pet.GID)
 		if pet == nil || !pet.Summoned {
 			return

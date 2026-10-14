@@ -97,11 +97,17 @@ variable "private_network" {
   default = "0"
 }
 
-# "1" serves /debug/pprof/ on the loopback control listener (sro-nomad
-# deploy -pprof, loopback clusters only).
+# "1" serves /debug/pprof/ on its own loopback listener at pprof_addr
+# (transport/pprof.go; sro-nomad deploy -pprof, on by default for the first
+# shard). The address must be a loopback IP; the GameWorld refuses any other.
 variable "transport_pprof" {
   type    = string
   default = "0"
+}
+
+variable "pprof_addr" {
+  type    = string
+  default = "127.0.0.1:8792"
 }
 
 variable "allowed_origins" {
@@ -171,6 +177,21 @@ variable "party_masteries" {
 # on a matching stack (port-only, not native; owner decision 2026-10-11).
 # "off" restores the native empty-slot rule.
 variable "storage_auto_stack" {
+  type    = string
+  default = "on"
+}
+
+# fast_den_return halves the Bandit Den Return Scroll's countdown (port-only,
+# not native; owner decision 2026-10-14). "off" restores the native 300 s.
+variable "fast_den_return" {
+  type    = string
+  default = "on"
+}
+
+# den_no_transport_summon refuses a transport summon during the Bandit Den
+# Return Scroll's countdown (port-only, not native; owner decision
+# 2026-10-14). "off" restores the native rule, which allows it.
+variable "den_no_transport_summon" {
   type    = string
   default = "on"
 }
@@ -280,12 +301,14 @@ variable "alchemy_no_assimilation" {
   default = "on"
 }
 
-# caravan_bandit_cap caps the bandits per caravan ambush (port-only, not
-# native; owner decision 2026-10-13): a count, or "off" for the original
-# game's uncapped count. A malformed value stops GameWorld at boot.
+# caravan_bandit_cap caps the bandits per caravan ambush, the thieves sent
+# at a trader and the hunters sent at a thief alike (port-only, not native;
+# owner decisions 2026-10-13 and 2026-10-14, 16 then 8): a count, or "off"
+# for the original game's uncapped count. A malformed value stops GameWorld
+# at boot.
 variable "caravan_bandit_cap" {
   type    = string
-  default = "16"
+  default = "8"
 }
 
 # beta_shop_only_degree9 keeps degree-9 Lucky Powder, magic stones and
@@ -302,6 +325,15 @@ variable "beta_shop_only_degree9" {
 # sells them instead, so "on" with a shop list lacking any of the eight
 # elixirs stops GameWorld at boot. "off" is the original game's drops.
 variable "elixir_drops_off" {
+  type    = string
+  default = "on"
+}
+
+# alchemy_material_drops_off keeps every alchemy material (type 3/3/11/4,
+# the grey bags of monster parts) out of monster drops (port-only, not
+# native, beta balance; owner 2026-10-14). "off" is the original game's
+# drops.
+variable "alchemy_material_drops_off" {
   type    = string
   default = "on"
 }
@@ -343,12 +375,15 @@ variable "beta_seal_rates" {
 # stack_sizes raises item stack caps per group (port-only, not native), e.g.
 # "potion=2000,elixir=50". Groups: potion, petpotion, universalpill, elixir,
 # luckypowder, magicstone, attrstone (stones merge only with an equal
-# assimilation value).
-# Empty keeps every itemdata cap; an unknown group or a cap outside 1..65535
-# stops GameWorld at boot.
+# assimilation value), arrow, bolt.
+# The deployment default raises Lucky Powder to 500 (owner, 2026-10-13) and
+# arrows and bolts to 2500 (owner, 2026-10-14).
+# Empty or "off" keeps every itemdata cap; an unknown group or a cap outside
+# 1..65535 stops GameWorld at boot, so a host's own stack_sizes may name a
+# group only once a release that knows it is live.
 variable "stack_sizes" {
   type    = string
-  default = ""
+  default = "arrow=2500,bolt=2500,luckypowder=500"
 }
 
 # The community site's public read API listener (internal/agent/publicstats):
@@ -500,6 +535,8 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_MAINTENANCE_GATE_PATH          = var.maintenance_gate_path
         SRO_PARTY_MASTERIES                = var.party_masteries
         SRO_STORAGE_AUTO_STACK             = var.storage_auto_stack
+        SRO_FAST_DEN_RETURN                = var.fast_den_return
+        SRO_DEN_NO_TRANSPORT_SUMMON        = var.den_no_transport_summon
         SRO_REVERSE_RETURN_MAP             = var.reverse_return_map
         SRO_GM_SETSPEED                    = var.gm_setspeed
         SRO_ALCHEMY_RATES                  = var.alchemy_rates
@@ -519,6 +556,7 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_ALCHEMY_NO_ASSIMILATION        = var.alchemy_no_assimilation
         SRO_CARAVAN_BANDIT_CAP             = var.caravan_bandit_cap
         SRO_ELIXIR_DROPS_OFF               = var.elixir_drops_off
+        SRO_ALCHEMY_MATERIAL_DROPS_OFF     = var.alchemy_material_drops_off
         SRO_BETA_SHOP_ONLY_DEGREE9         = var.beta_shop_only_degree9
         SRO_STACK_SIZES                    = var.stack_sizes
         SRO_PUBLIC_API_ADDR                = var.public_api_addr
@@ -531,6 +569,7 @@ job "sro-gameworld-__SHARD_ID__" {
         TRANSPORT_ALLOWED_ORIGINS          = var.allowed_origins
         SRO_TRANSPORT_TLS_ID               = var.transport_tls_id
         TRANSPORT_PPROF                    = var.transport_pprof
+        TRANSPORT_PPROF_ADDR               = var.pprof_addr
         SRO_RELEASE_ID                     = var.release_id
       }
 

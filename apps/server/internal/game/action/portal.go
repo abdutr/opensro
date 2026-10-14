@@ -52,6 +52,30 @@ portalCondition
 */
 type portalCondition struct{ kind, minimum, maximum uint32 }
 
+// portalConditionTransport is Restrict kind 2: CRefTeleportLink_CheckState
+// (513A70, 513B1A..513B34) refuses 0x1C10 while the player's first summoned
+// COS is a transport (vt+0x2EC -> 4827F0 tests TID band 2).
+const portalConditionTransport uint32 = 2
+
+/*
+================
+linkRefusesTransport
+
+Whether a link refuses a summoned transport. The server reads Restrict from
+its database, and both research databases (portaltransport_generated.go)
+put kind 2 on the town gates and none on the ferries, flyships and tunnels,
+as the v1.150 client's own text says (UIIT_MSG_STRGERR_CANT_TELEPORT_WITH_CART:
+"... ferries can be used"). The client's teleportlink.txt carries the kind
+on the reverse links, so it is used only for a link the databases lack.
+================
+*/
+func linkRefusesTransport(source, target string, clientTransport bool) bool {
+	if refuses, known := serverTransportLinks[[2]string{source, target}]; known {
+		return refuses
+	}
+	return clientTransport
+}
+
 /*
 ================
 portalLink
@@ -201,6 +225,7 @@ func loadPortalCatalog(dir string) (*portalCatalog, error) {
 		if _, ok := c.destinations[link.target]; !ok {
 			return nil, fmt.Errorf("missing destination teleport %d", link.target)
 		}
+		clientTransport := false
 		for j := 5; j < 20; j += 3 {
 			k, a, b := values[j], values[j+1], values[j+2]
 			if k == 0 {
@@ -212,7 +237,14 @@ func loadPortalCatalog(dir string) (*portalCatalog, error) {
 			if k > 2 || k == 1 && a > b || k == 2 && (a != 0 || b != 0) {
 				return nil, fmt.Errorf("teleportlink row %d unsupported condition %d", i+1, k)
 			}
+			if k == portalConditionTransport {
+				clientTransport = true
+				continue
+			}
 			link.conditions = append(link.conditions, portalCondition{k, a, b})
+		}
+		if linkRefusesTransport(c.destinations[link.source].code, c.destinations[link.target].code, clientTransport) {
+			link.conditions = append(link.conditions, portalCondition{kind: portalConditionTransport})
 		}
 		key := [2]uint32{link.source, link.target}
 		if _, ok := c.links[key]; ok {
@@ -373,7 +405,9 @@ func (rt *Runtime) HandlePortal(division string, c *enterworld.Character, payloa
 		}
 		collected = int64(fee) - link.fee
 		link.fee = int64(fee)
-		if failure := portalAdmission(c, source, link, mask, rt.hasSummonedTransportCOS(c)); failure != 0 {
+		transport := rt.hasSummonedTransportCOS(c)
+		traveller := portalTraveller{questMask: mask, transportCOS: transport, transportFar: transport && rt.transportBeyond(division, c, gateTransportRange)}
+		if failure := portalAdmission(c, source, link, traveller); failure != 0 {
 			return 0, portalFailure(failure), false
 		}
 		if c.NativeTeleportMode != 0 || rt.hasOpenSkillCast(division, c.Name) {
@@ -535,20 +569,47 @@ func (rt *Runtime) portalSourceNpc(division string, c *enterworld.Character, gid
 	return npc, sourceID, 0
 }
 
+// gateTransportRange is how far a summoned transport may stand from its
+// owner and still travel through a gate (4F2B50 case 2: Vec3_Length of the
+// relative position against 1000.0, else 0x1C13).
+const gateTransportRange = 1000.0
+
+/*
+================
+portalTraveller
+
+What portalAdmission needs to know of the traveller beyond the character:
+the quest travel mask, whether a transport is summoned, and whether it
+stands beyond gateTransportRange.
+================
+*/
+type portalTraveller struct {
+	questMask    uint32
+	transportCOS bool
+	transportFar bool
+}
+
 // 4F2D05: the quest bit blocks buildings and the special GATE_TD route;
 // it does not turn ordinary ferries into town gates. 513A70 separately checks
 // the authored transport-COS restriction on ferry links.
 /*
 ================
 portalAdmission
+
+In 4F2B50 case 2's order: the quest bit, then a summoned transport beyond
+gateTransportRange (0x1C13: it would be left behind), then the link's
+conditions (513A70), then the fee.
 ================
 */
-func portalAdmission(c *enterworld.Character, source portalDestination, link portalLink, questMask uint32, transportCOS bool) byte {
+func portalAdmission(c *enterworld.Character, source portalDestination, link portalLink, traveller portalTraveller) byte {
 	if !enterworld.CharacterAlive(c) || c.DeletePending {
 		return 2
 	}
-	if questMask&0x40000 != 0 && (source.building || source.code == "GATE_TD") {
+	if traveller.questMask&0x40000 != 0 && (source.building || source.code == "GATE_TD") {
 		return 0x17
+	}
+	if traveller.transportCOS && traveller.transportFar {
+		return 0x13
 	}
 	for _, condition := range link.conditions {
 		switch condition.kind {
@@ -560,8 +621,8 @@ func portalAdmission(c *enterworld.Character, source portalDestination, link por
 			if level < condition.minimum || level > condition.maximum {
 				return 0x15
 			}
-		case 2:
-			if transportCOS {
+		case portalConditionTransport:
+			if traveller.transportCOS {
 				return 0x10
 			}
 		}

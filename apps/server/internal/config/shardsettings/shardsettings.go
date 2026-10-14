@@ -55,6 +55,10 @@ var Settings = []Setting{
 	{Env: "SRO_BETA_SILK", NomadVar: "beta_silk", Default: "50"},
 	{Env: "SRO_PARTY_MASTERIES", NomadVar: "party_masteries", Default: "on", Source: Built},
 	{Env: "SRO_STORAGE_AUTO_STACK", NomadVar: "storage_auto_stack", Default: "on"},
+	// Owner, 2026-10-14: the Bandit Den scroll counts down half as long.
+	{Env: "SRO_FAST_DEN_RETURN", NomadVar: "fast_den_return", Default: "on"},
+	// Owner, 2026-10-14: no transport summon during the Bandit Den countdown.
+	{Env: "SRO_DEN_NO_TRANSPORT_SUMMON", NomadVar: "den_no_transport_summon", Default: "on"},
 	{Env: "SRO_REVERSE_RETURN_MAP", NomadVar: "reverse_return_map", Default: ""},
 	{Env: "SRO_GM_SETSPEED", NomadVar: "gm_setspeed", Default: "on"},
 	{Env: "SRO_ALCHEMY_RATES", NomadVar: "alchemy_rates", Default: "on", Catalogue: true},
@@ -67,15 +71,20 @@ var Settings = []Setting{
 	{Env: "SRO_SHOP_EXTRA_GOODS", NomadVar: "shop_extra_goods", Default: "on", Catalogue: true},
 	{Env: "SRO_MALL_EXTRA_GOODS", NomadVar: "mall_extra_goods", Default: "on"},
 	{Env: "SRO_ALCHEMY_NO_ASSIMILATION", NomadVar: "alchemy_no_assimilation", Default: "on"},
-	{Env: "SRO_CARAVAN_BANDIT_CAP", NomadVar: "caravan_bandit_cap", Default: "16"},
+	// Owner, 2026-10-14: 8 per ambush (was 16), thieves and hunters alike.
+	{Env: "SRO_CARAVAN_BANDIT_CAP", NomadVar: "caravan_bandit_cap", Default: "8"},
 	{Env: "SRO_ELIXIR_DROPS_OFF", NomadVar: "elixir_drops_off", Default: "on", Catalogue: true},
+	// Owner, 2026-10-14: alchemy materials no longer drop; "off" is native.
+	{Env: "SRO_ALCHEMY_MATERIAL_DROPS_OFF", NomadVar: "alchemy_material_drops_off", Default: "on", Catalogue: true},
 	{Env: "SRO_BETA_DROP_CAP", NomadVar: "beta_drop_cap", Default: "16", Catalogue: true},
 	{Env: "SRO_BETA_GOLD_RATE", NomadVar: "beta_gold_rate", Default: "250", Catalogue: true},
 	{Env: "SRO_INSTANT_INVENTORY_EXPANSION", NomadVar: "instant_inventory_expansion", Default: "on"},
 	{Env: "SRO_BETA_RARE_RATE", NomadVar: "beta_rare_rate", Default: "5", Catalogue: true},
 	{Env: "SRO_BETA_SHOP_ONLY_DEGREE9", NomadVar: "beta_shop_only_degree9", Default: "on", Catalogue: true},
 	{Env: "SRO_BETA_SEAL_RATES", NomadVar: "beta_seal_rates", Default: "on", Catalogue: true},
-	{Env: "SRO_STACK_SIZES", NomadVar: "stack_sizes", Default: "", Source: Built},
+	// Owner, 2026-10-13 (F7): Lucky Powder stacks to 500; 2026-10-14:
+	// arrows and bolts stack to 2500. "off" is native.
+	{Env: "SRO_STACK_SIZES", NomadVar: "stack_sizes", Default: "arrow=2500,bolt=2500,luckypowder=500", Source: Built},
 }
 
 // NotSettings are the job's other SRO_ variables: what a deployment
@@ -111,6 +120,23 @@ func (s Setting) Value(getenv func(string) string) string {
 		return v
 	}
 	return s.Default
+}
+
+/*
+================
+Lookup
+
+The setting named by its environment variable. A name outside the table
+is a programming error.
+================
+*/
+func Lookup(env string) Setting {
+	for _, s := range Settings {
+		if s.Env == env {
+			return s
+		}
+	}
+	panic("shardsettings: no setting " + env)
 }
 
 /*
