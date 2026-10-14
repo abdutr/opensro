@@ -11,7 +11,7 @@ import { createCharacterDialog } from "../../src/engine/runtime/frontend/dialog/
 import type { AssetOwner } from "../../src/engine/contracts/assets";
 import type { CharacterRecord } from "../../src/engine/contracts/session";
 import type { UiEvent } from "../../src/engine/contracts/ui";
-import type { FrontendFixtureState } from "./fixture-state";
+import { frontendOf, type FrontendFixtureState } from "./fixture-state";
 
 /*
 ================
@@ -145,7 +145,7 @@ export function createFrontendFixture(
 				else if ( value.id === "dock:warning-cancel" ) dialog.cancel();
 				else if ( value.id === "dock:delete" || value.id === "dock:restore" ) {
 					const warning = roster[0] && dialog.open( roster[0] );
-					if ( warning ) state.frontend = { ...state.frontend, status: { key: warning, suffix: "" } };
+					if ( warning ) state.frontend = { ...frontendOf( state ), status: { key: warning, suffix: "" } };
 				} else record( "unsupported integration", `Frontend stage navigation: ${value.id}` );
 				return true;
 			}
@@ -171,7 +171,7 @@ export function createFrontendFixture(
 			last = now;
 			creation.step( delta, undefined );
 			dialog.step( delta, undefined, roster );
-			state.frontend = { ...state.frontend, creation: creation.snapshot(), dialog: dialog.snapshot() };
+			state.frontend = { ...frontendOf( state ), creation: creation.snapshot(), dialog: dialog.snapshot() };
 		},
 		dispose() {
 			creation.dispose();

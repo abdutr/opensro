@@ -9,10 +9,10 @@ Stall transitions are driven separately through its production reducer.
 import { emptySocial } from "../../src/engine/foundation/gameplay/social";
 import { emptyStall, stallRequest } from "../../src/engine/foundation/gameplay/stall";
 import { uiPanels } from "../../src/engine/foundation/ui/panels";
-import { SERVICE_WINDOWS } from "../../tests/helpers/ui-entry-recipes.mjs";
+import { SERVICE_WINDOWS } from "./shared/entry-recipes.mjs";
 import { extendedJourneys } from "./extended";
 
-import type { FixtureState } from "./fixture-state";
+import { WORLD_FRONTEND, type FixtureState } from "./fixture-state";
 import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
 
 export const SCENARIO_VERSION = 2;
@@ -331,7 +331,7 @@ export function seedJourney( id: string ): FixtureState {
 		};
 	} else if ( id.startsWith( "stall-" ) ) stall = stallRequest( stall, { kind: "stall-name" } ).state;
 	return {
-		frontend: { phase: "world" },
+		frontend: { ...WORLD_FRONTEND },
 		session: { phase: "world", revision: 1, character: "Reviewer" },
 		gameplay: {
 			revision: 1,

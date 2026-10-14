@@ -1,17 +1,17 @@
 /*
 ===========================================================================
-ui-entry-recipes.mjs - shared synthetic admission recipes for production UI
+entry-recipes.mjs - shared synthetic admission recipes for production UI
 
 Used by the runtime panel sweep and local browser QA. No rendering, permission
 logic or service transport lives here. Async steps allow real assets to settle.
 ===========================================================================
 */
-const { emptyStall, stallRequest } = await import( "../../src/engine/foundation/gameplay/stall.ts" );
-const { fortressPacket } = await import( "../../src/engine/foundation/gameplay/fortress.ts" );
-const { fortressProductionQuery } = await import( "../../src/engine/foundation/gameplay/fortress-production.ts" );
-const { npcGid } = await import( "../../src/engine/foundation/gameplay/npc-dialogue.ts" );
+const { emptyStall, stallRequest } = await import( "../../../src/engine/foundation/gameplay/stall.ts" );
+const { fortressPacket } = await import( "../../../src/engine/foundation/gameplay/fortress.ts" );
+const { fortressProductionQuery } = await import( "../../../src/engine/foundation/gameplay/fortress-production.ts" );
+const { npcGid } = await import( "../../../src/engine/foundation/gameplay/npc-dialogue.ts" );
 const { createMagicOptionGrant } = await import(
-	"../../src/engine/runtime/simulation/worker/session/world/gameplay/inventory/magic-option/magic-option.ts"
+	"../../../src/engine/runtime/simulation/worker/session/world/gameplay/inventory/magic-option/magic-option.ts"
 );
 
 const OFFICIAL = 17;
@@ -19,7 +19,37 @@ const OFFICIAL = 17;
 const GLOBAL_CHAT_TYPE = 0x29ec;
 const BAG_SLOT = 13;
 
-/** @typedef {import("./ui-entry-recipes.mjs").EntryFixture} Fixture */
+/*
+================
+EntryFixture
+
+What a recipe mutates: production-typed gameplay and entities (the real
+GameplayState, not a partial), and the UI it drives. The runtime sweep
+(tests/helpers/ui-fixture.mjs) and the QA frame both hand over a fixture of
+this shape; the frame's seeded state (fixture-state.ts) is a stricter one.
+================
+*/
+/**
+ * @typedef {object} EntryFixture
+ * @property {{ gameplay: import("../fixture-state.ts").Mutable<import("../../../src/engine/contracts/gameplay.ts").GameplayState>, entities: import("../fixture-state.ts").FixtureState["entities"] }} state
+ * @property {{ event( event: import("../../../src/engine/contracts/ui.ts").UiEvent ): void }} ui
+ */
+/** @typedef {( fixture: EntryFixture, step: () => void | Promise<void> ) => void | Promise<void>} EntryRecipe */
+/** @typedef {EntryFixture} Fixture */
+
+/*
+================
+localPlayer
+
+The fixture's own character, which every recipe copies or reshapes.
+================
+*/
+/** @param {Fixture} f */
+function localPlayer( f ) {
+	const player = f.state.entities[0];
+	if ( !player ) throw Error( "the fixture has no local character" );
+	return player;
+}
 
 /*
 ================
@@ -31,7 +61,7 @@ service window is requested from.
 */
 /** @param {Fixture} f */
 function talkTo( f ) {
-	f.state.entities.push( { ...f.state.entities[0], gid: OFFICIAL, refObjId: 2011, kind: "npc", name: "Official" } );
+	f.state.entities.push( { ...localPlayer( f ), gid: OFFICIAL, refObjId: 2011, kind: "npc", name: "Official" } );
 	Object.assign( f.state.gameplay, {
 		target: OFFICIAL,
 		npcConversation: { phase: "menu", gid: npcGid( OFFICIAL ), dialogueRevision: 0 }
@@ -46,13 +76,13 @@ How a window opens when its window id alone does not open it. Each returns
 after the event that opens the window; the sweep then settles the HUD.
 ================
 */
-/** @type {Record<string, (f: Fixture, step: () => void | Promise<void>) => void | Promise<void>>} */
+/** @type {Record<string, EntryRecipe>} */
 export const OPENERS = {
 	"Magic option"( f ) {
 		// avatar-magic-option.test.mjs: the real owner admits only its B338 lock.
 		// This seeds a completed lock; it does not claim a visible NPC entry flow.
 		const grant = createMagicOptionGrant();
-		/** @type {Map<number, import("../../src/engine/foundation/gameplay/item-tooltip-reference.ts").ItemMagicReference>} */
+		/** @type {Map<number, import("../../../src/engine/foundation/gameplay/item-tooltip-reference.ts").ItemMagicReference>} */
 		const references = new Map( [ [ 246, {
 			paramId: 246,
 			optionName: "MATTR_AVATAR_STR",
@@ -100,7 +130,7 @@ export const OPENERS = {
 		f.ui.event( { kind: "activate", id: "open-window:Stall network" } );
 	},
 	async "Skin change"( f, step ) {
-		Object.assign( f.state.entities[0], { refObjId: 1907, bodyShape: 0x22 } );
+		Object.assign( localPlayer( f ), { refObjId: 1907, bodyShape: 0x22 } );
 		Object.assign( f.state.gameplay, {
 			inventorySlotCount: 45,
 			equipmentSlotCount: 13,
@@ -232,7 +262,7 @@ SERVICE_WINDOWS
 Windows drawn outside the panel registry, each opened by its game flow.
 ================
 */
-/** @type {Record<string, (f: Fixture, step: () => void | Promise<void>) => void | Promise<void>>} */
+/** @type {Record<string, EntryRecipe>} */
 export const SERVICE_WINDOWS = {
 	"Global chat"( f ) {
 		// 69D4F0: using the Global Chatting item opens CIFWholeChat on its slot.

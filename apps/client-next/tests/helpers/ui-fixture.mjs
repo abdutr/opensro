@@ -12,7 +12,8 @@ import { CLIENT_PUBLIC_ROOT } from "../../../../scripts/lib/generatedRoot.mjs";
 import "./native-source-loader.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-const { createUi } = await import( "../../src/engine/runtime/ui/ui.ts" );
+// The one named builder the review frame shares (tools/ui-qa/shared/ui-harness.ts).
+const { createUiHarness } = await import( "../../tools/ui-qa/shared/ui-harness.ts" );
 const { expandTextRuns } = await import( "../../src/engine/foundation/rendering/text-run.ts" );
 export const fontAtlas = JSON.parse(
 	readFileSync( CLIENT_PUBLIC_ROOT + "/assets/fonts/native-ui-font-atlas.json", "utf-8" )
@@ -34,8 +35,8 @@ export function uiFixture(
 ) {
 	const scenes = [], products = [], textures = [], sounds = [], requested = [], pending = new Map();
 	let nextId = 0;
-	const ui = createUi(
-		{
+	const ui = createUiHarness( {
+		assets: {
 			available: () => 8,
 			take: id => {
 				const bytes = pending.get( id );
@@ -87,30 +88,53 @@ export function uiFixture(
 		recordProduct
 		================
 		*/
-		s => {
+		publish: s => {
 			products.push( s );
 			scenes.push( s && { ...s, quads: expandTextRuns( s.quads ) } );
 		},
-		( ...args ) => textures.push( args ),
-		"https://fixture.invalid/",
-		"https://fixture.invalid/",
-		undefined,
-		kind => sounds.push( kind ),
-		undefined,
-		undefined,
+		texture: ( ...args ) => textures.push( args ),
+		base: "https://fixture.invalid/",
+		apiBase: "https://fixture.invalid/",
+		sound: kind => sounds.push( kind ),
 		saveOptions,
 		audioPreference,
 		saveSight,
 		saveBindings,
 		saveVideo,
-		undefined,
-		undefined,
 		extensions
-	);
-	const entity = { gid: 1, regionId: 1, x: 0, y: 0, z: 0, heading: 0, kind: "player", name: "Player", mountedOn: 0 };
+	} );
+	// A production entity always names its model; 1907 is a Chinese male character.
+	const entity = {
+		gid: 1,
+		refObjId: 1907,
+		regionId: 1,
+		x: 0,
+		y: 0,
+		z: 0,
+		heading: 0,
+		kind: "player",
+		name: "Player",
+		mountedOn: 0
+	};
 	const state = {
 		session: { phase: "world", revision: 1, character: "Player" },
-		gameplay: { localGid: 1, pose: { ...entity, angle: 0 }, vitals: [], inventory: [], target: 0 },
+		// Every field GameplayState requires, at an idle world's values, so the
+		// shared recipes (tools/ui-qa/shared) mutate a production-shaped state.
+		gameplay: {
+			revision: 1,
+			localGid: 1,
+			pose: { ...entity, angle: 0 },
+			authoritativePose: { ...entity, angle: 0 },
+			pendingMoves: 0,
+			acknowledgedMove: 0,
+			vitals: [],
+			inventory: [],
+			inventoryPending: false,
+			target: 0,
+			targetPending: 0,
+			casts: [],
+			error: null
+		},
 		entities: [ entity ],
 		width: 1600,
 		height: 900,

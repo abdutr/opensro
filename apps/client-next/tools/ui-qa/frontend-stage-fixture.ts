@@ -14,7 +14,7 @@ import type { AssetOwner } from "../../src/engine/contracts/assets";
 import type { Renderer } from "../../src/engine/contracts/runtime";
 import type { UiEvent } from "../../src/engine/contracts/ui";
 import type { RecipeContext } from "./extended";
-import type { FrontendFixtureState } from "./fixture-state";
+import { frontendOf, type FrontendFixtureState } from "./fixture-state";
 
 /*
 ================
@@ -173,8 +173,8 @@ export function createStageFixture(
 					if ( !renderer.worldStats().residentGroups ) throw Error( "Dock has no resident production scene" );
 					if ( mode === false || mode === "populated" ) return;
 					if ( populated ) {
-						if ( !state.frontend.selectedCharacter ) owner.select( "Reviewer" );
-						else if ( !state.frontend.cameraMoving ) {
+						if ( !frontendOf( state ).selectedCharacter ) owner.select( "Reviewer" );
+						else if ( !frontendOf( state ).cameraMoving ) {
 							if ( mode === "delete" || mode === "restore" ) owner.dialogAction( "dock:" + mode );
 							await context.step();
 							return;
@@ -182,7 +182,7 @@ export function createStageFixture(
 					} else owner.create();
 				}
 				if ( phase === "create" ) {
-					if ( state.frontend.raceCenters?.length !== 2 ) {
+					if ( frontendOf( state ).raceCenters?.length !== 2 ) {
 						throw Error( "Production race figures are not both projected" );
 					}
 					if ( mode === true ) return;

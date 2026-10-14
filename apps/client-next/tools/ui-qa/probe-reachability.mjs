@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
 import { UI_QA_ORIGIN } from "./settings.mjs";
-import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { artifactDirectory, guardReviewRequests, reviewFrame } from "./probe-support.mjs";
 import { fetchCatalogIdentity } from "./catalog-client.mjs";
 const directory = artifactDirectory( "reachability" );
 await mkdir( directory, { recursive: true } );
@@ -27,8 +27,7 @@ choose
 */
 async function choose( id ) {
 	await page.locator( `[data-journey-id="${id}"]` ).click();
-	const frame = await (await page.locator( "#viewport-frame" ).elementHandle()).contentFrame();
-	await frame.waitForURL( new URL( await page.locator( "#viewport-frame" ).getAttribute( "src" ), page.url() ).href );
+	const frame = await reviewFrame( page );
 	await frame.waitForFunction(
 		() => {
 			const report = window.__uiQa?.snapshot();

@@ -27,13 +27,15 @@ const clientRoot = path.resolve( path.dirname( fileURLToPath( import.meta.url ) 
 const node = process.execPath;
 const SOURCE_FLAG = "--source";
 const ASSET_ARCHITECTURE_TESTS = new Set( [ "audio-parity-audit.test.mjs" ] );
-const SOURCE_GATE_NAMES = new Set( [ "verify:test-types", "typecheck", "verify:layout" ] );
+const SOURCE_GATE_NAMES = new Set( [ "verify:test-types", "verify:ui-qa-types", "typecheck", "verify:layout" ] );
 
 // Longest first, so the critical path starts immediately.
 const GATES = [
 	// Reuses each file's pass while every input it read is unchanged.
 	[ "test", [ "tools/run-tests.mjs", "tests/architecture", "tests/runtime" ] ],
 	[ "verify:test-types", [ "tools/verify-test-types.mjs" ] ],
+	// The UI review tools, checked apart from the shipped program (tools/ui-qa/tsconfig.json).
+	[ "verify:ui-qa-types", [ "tools/verify-ui-qa-types.mjs" ] ],
 	[ "typecheck", [
 		path.join( clientRoot, "node_modules", "typescript", "bin", "tsc" ),
 		"--noEmit",

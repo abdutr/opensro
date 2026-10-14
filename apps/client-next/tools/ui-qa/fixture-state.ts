@@ -55,9 +55,38 @@ FixtureState
 export type FixtureState = Mutable<Omit<Partial<UiView>, "gameplay" | "entities" | "session" | "frontend">> & {
 	gameplay: FixtureGameplay;
 	session: Mutable<NonNullable<UiView["session"]>>;
-	frontend: Mutable<Partial<NonNullable<UiView["frontend"]>>>;
+	frontend?: Mutable<NonNullable<UiView["frontend"]>>;
 	entities: Mutable<EntityState>[];
 };
+
+/*
+================
+WORLD_FRONTEND
+
+The frontend snapshot production publishes once the world shows: the flow's
+snapshot (frontend/flow/flow.ts) in phase "world", faded fully in.
+================
+*/
+export const WORLD_FRONTEND: Mutable<NonNullable<UiView["frontend"]>> = {
+	phase: "world",
+	generation: 1,
+	elapsed: 1,
+	alpha: 1,
+	logoAlpha: 0,
+	error: null
+};
+
+/*
+================
+frontendOf
+
+A frontend stage's snapshot, which every frontend fixture installs first.
+================
+*/
+export function frontendOf( state: Pick<FixtureState, "frontend"> ): Mutable<NonNullable<UiView["frontend"]>> {
+	if ( !state.frontend ) throw Error( "the frontend fixture has no snapshot" );
+	return state.frontend;
+}
 
 /*
 ================

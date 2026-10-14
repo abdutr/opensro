@@ -10,7 +10,7 @@ import type { ExtendedRecipe, RecipeContext } from "./extended";
 import { socialPacket } from "../../src/engine/foundation/gameplay/social";
 import { fortressBootstrap } from "../../src/engine/foundation/gameplay/fortress";
 import { jobOutcomeAnswer } from "../../src/engine/foundation/gameplay/job-guild";
-import { OPENERS } from "../../tests/helpers/ui-entry-recipes.mjs";
+import { OPENERS } from "./shared/entry-recipes.mjs";
 import { fixtureGuild, guildMember, herb, npc, openPanel, press } from "./recipe-input";
 
 /*
@@ -128,7 +128,7 @@ export const reachabilityRecipes: readonly ExtendedRecipe[] = [
 		id: "reach:fortress-tax-" + action,
 		title: "Fortress tax - " + action + " confirmation",
 		family: "Services" as const,
-		source: "tests/helpers/ui-entry-recipes.mjs Fortress tax; runtime/ui/ui.ts fortress-tax-modify/collect",
+		source: "tools/ui-qa/shared/entry-recipes.mjs Fortress tax; runtime/ui/ui.ts fortress-tax-modify/collect",
 		controls: [ "fortress-tax-yes", "fortress-tax-no" ],
 		async open( context: RecipeContext ) {
 			guildMember( context ).role = 1;

@@ -21,11 +21,11 @@ import assert from "node:assert/strict";
 import { uiFixture } from "../helpers/ui-fixture.mjs";
 const { uiPanels, panelCloseId, closedPanel } = await import( "../../src/engine/foundation/ui/panels.ts" );
 const { emptyStall, stallRequest } = await import( "../../src/engine/foundation/gameplay/stall.ts" );
-import { OPENERS, SERVICE_WINDOWS } from "../helpers/ui-entry-recipes.mjs";
-import { entryEvidence } from "../helpers/ui-entry-evidence.mjs";
+import { OPENERS, SERVICE_WINDOWS } from "../../tools/ui-qa/shared/entry-recipes.mjs";
+import { entryEvidence } from "../../tools/ui-qa/shared/entry-evidence.mjs";
 
 const OFFICIAL = 17, TRADER = 18, TRANSPORT = 7, TRADE_GOODS_TYPE = 0x46c;
-/** @typedef {import("../helpers/ui-entry-recipes.mjs").EntryFixture} Fixture */
+/** @typedef {import("../../tools/ui-qa/shared/entry-recipes.mjs").EntryFixture} Fixture */
 const SWEEP_WINDOWS = { ...SERVICE_WINDOWS, "Shop with a transport out": tradeWithTransport };
 
 /*

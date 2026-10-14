@@ -1,0 +1,34 @@
+{
+	// Type-checks the UI review tools (`verify:ui-qa-types` in tools/check.mjs).
+	//
+	// - Kept out of the client's tsconfig.json, which is the shipped program:
+	//   these are local developer tools (Vite middleware, Playwright probes,
+	//   an iframe workbench), checked against the client sources they drive
+	//   without widening or loosening the production program.
+	// - Every file here is included, TypeScript and JavaScript alike, so a new
+	//   tool or probe is checked without being listed.
+	// - Node types are loaded for the server and probe scripts; JavaScript is
+	//   checked with the test program's leniency for untyped callbacks.
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"allowJs": true,
+		"checkJs": true,
+		"noEmit": true,
+		"tsBuildInfoFile": "../../temp/cache/tsc/ui-qa.tsbuildinfo",
+		"allowImportingTsExtensions": true,
+		"noImplicitAny": false,
+		"types": [ "node", "vite/client" ],
+		// The probes import page modules by their Vite dev-server path inside
+		// page.evaluate; these resolve them to the real sources for typing.
+		"paths": {
+			"@/*": [ "../../src/*" ],
+			"/src/*": [ "../../src/*" ],
+			"/tools/ui-qa/*": [ "./*" ]
+		}
+	},
+	"include": [
+		"./**/*.ts",
+		"./**/*.mjs",
+		"../types/**/*.d.ts"
+	]
+}

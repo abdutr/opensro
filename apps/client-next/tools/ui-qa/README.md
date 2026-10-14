@@ -42,7 +42,7 @@ resolvers own asset locations; no assets are copied or regenerated.
 The catalog has 180 scenarios: 12 focused Guild/Stall/HUD journeys, all 32 production
 panel entries and 136 additional recipes (including three service windows).
 The specialized panel admission recipes and three service recipes
-are shared with the existing runtime sweep in `tests/helpers/ui-entry-recipes.mjs`.
+are shared with the existing runtime sweep in `tools/ui-qa/shared/entry-recipes.mjs`.
 They publish explicit service/item prerequisites through real production owners.
 Opening an entry does not establish complete state coverage.
 
@@ -55,7 +55,7 @@ saved judgments for the current viewport/backdrop, separately from drafts.
 Blocked fixtures stay in the sequence and can receive an explicit unsupported or
 failed observation with their actual error/trace evidence; saving does not admit them.
 Registry and service evidence requires every target-specific control listed in
-`tests/helpers/ui-entry-evidence.mjs`; companion Inventory and NPC menus do not
+`tools/ui-qa/shared/entry-evidence.mjs`; companion Inventory and NPC menus do not
 count as the requested window. Other contexts use named owner controls, DOM nodes
 or rendered textures. These are presentation mounts. Direct NPC activation does
 not establish that the visible menu exposes an enabled row. The

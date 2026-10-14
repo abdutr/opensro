@@ -9,7 +9,7 @@ The registry is imported from production; no second list of windows is kept.
 import { mkdir, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
 import { UI_QA_ORIGIN } from "./settings.mjs";
-import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { artifactDirectory, guardReviewRequests, reviewFrame } from "./probe-support.mjs";
 import { fetchCatalogIdentity } from "./catalog-client.mjs";
 
 const extended = process.argv.includes( "--extended" );
@@ -37,10 +37,7 @@ try {
 		let report = null, reason = null;
 		try {
 			await page.locator( `[data-journey-id="${id}"]` ).click();
-			const frame = await (await page.locator( "#viewport-frame" ).elementHandle()).contentFrame();
-			await frame.waitForURL(
-				new URL( await page.locator( "#viewport-frame" ).getAttribute( "src" ), page.url() ).href
-			);
+			const frame = await reviewFrame( page );
 			await frame.waitForFunction(
 				() => window.__uiQa?.snapshot().ready || window.__uiQa?.snapshot().error,
 				null,

@@ -67,12 +67,8 @@ export function readCatalog() {
 			text: fs.readFileSync( file, "utf8" )
 		})
 	);
-	const qa = [
-		...walk( path.join( app, "tools/ui-qa" ), [ ".ts", ".mjs", ".html", ".css", ".json" ] ),
-		...walk( path.join( app, "tests/helpers" ), [ ".mjs", ".mts" ] ).filter( file =>
-			path.basename( file ).startsWith( "ui-entry-" )
-		)
-	];
+	// The shared recipes and witnesses live in tools/ui-qa/shared, inside this walk.
+	const qa = walk( path.join( app, "tools/ui-qa" ), [ ".ts", ".mjs", ".html", ".css", ".json" ] );
 	const layouts = path.join( CLIENT_PUBLIC_ROOT, "assets/cif/layouts" );
 	const native = walk( clientV150ResinfoRoot, [ ".txt" ] );
 	const published = walk( layouts, [ ".json" ] );

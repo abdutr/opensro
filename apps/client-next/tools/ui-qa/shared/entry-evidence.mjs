@@ -1,6 +1,6 @@
 /*
 ===========================================================================
-ui-entry-evidence.mjs - target-specific witnesses for synthetic UI mounts
+entry-evidence.mjs - target-specific witnesses for synthetic UI mounts
 
 These are production semantic identities, not new window implementations.
 Every required control must be present. A companion or prerequisite cannot
@@ -8,6 +8,18 @@ stand in for the requested surface. This does not prove visible menu entry.
 ===========================================================================
 */
 
+const { uiPanels, panelCloseId } = await import( "../../../src/engine/foundation/ui/panels.ts" );
+
+/*
+================
+ENTRY_WITNESSES
+
+Each target's own controls, written by hand: one or two the window publishes
+and no other surface does. A registry panel's close control is not listed
+here; panelWitnesses derives it from the registry (panels.ts panelCloseId),
+so a renamed close id fails in one place.
+================
+*/
 /** @type {Record<string, readonly string[]>} */
 export const ENTRY_WITNESSES = {
 	"Academy": [ "academy-invite", "select-window:Academy" ],
@@ -48,6 +60,26 @@ export const ENTRY_WITNESSES = {
 	"Stall": [ "stall-close", "stall-slot:0" ]
 };
 
+// Registry names drawn by another panel's window, which owns their close.
+const PANEL_ALIASES = /** @type {Record<string, string>} */ ({ "Guild tools": "Guild" });
+
+/*
+================
+panelWitnesses
+
+The close control a registry panel publishes while it shows. A window that
+draws its own close control (its hand witnesses name one, as the fortress
+windows' "fortress-war-close" does) publishes no registry close; an alias
+publishes its owner's.
+================
+*/
+/** @param {string} name */
+function panelWitnesses( name ) {
+	if ( (ENTRY_WITNESSES[name] ?? []).some( id => id.endsWith( "-close" ) ) ) return [];
+	const panel = uiPanels().find( row => row === (PANEL_ALIASES[name] ?? name) );
+	return panel ? [ panelCloseId( panel ) ] : [];
+}
+
 /*
 ================
 entryEvidence
@@ -58,7 +90,9 @@ disabled controls are valid witnesses, not proof that their action is allowed.
 */
 /** @param {string} name @param {readonly {id: string}[]} controls */
 export function entryEvidence( name, controls ) {
-	const required = ENTRY_WITNESSES[name] ?? [];
+	const witnesses = ENTRY_WITNESSES[name] ?? [];
+	// Unknown targets stay unknown: a derived close id alone admits nothing.
+	const required = witnesses.length ? [ ...panelWitnesses( name ), ...witnesses ] : witnesses;
 	const ids = new Set( controls.map( control => control.id ) );
 	const missing = required.filter( id => !ids.has( id ) );
 	return {

@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
 import { UI_QA_ORIGIN } from "./settings.mjs";
-import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { artifactDirectory, guardReviewRequests, reviewFrame } from "./probe-support.mjs";
 import { fetchCatalog } from "./catalog-client.mjs";
 
 const directory = artifactDirectory();
@@ -30,10 +30,7 @@ async function fixture() {
 	await page.waitForFunction( () =>
 		document.querySelector( "#viewport-frame" )?.getAttribute( "src" )?.includes( "frame.html" )
 	);
-	const handle = await page.locator( "#viewport-frame" ).elementHandle();
-	const frame = await handle.contentFrame();
-	const target = new URL( await page.locator( "#viewport-frame" ).getAttribute( "src" ), page.url() ).href;
-	await frame.waitForURL( target );
+	const frame = await reviewFrame( page );
 	await frame.waitForFunction( () => window.__uiQa?.snapshot().ready || window.__uiQa?.snapshot().error, null, {
 		timeout: 60000
 	} );
@@ -163,26 +160,26 @@ try {
 		await page.locator( "#inventory-tab" ).click();
 		await page.locator( "#search" ).fill( "ifguildmasterelection" );
 		await page.locator( '[data-journey-id="resource:ifguildmasterelection"]' ).click();
-		assert.match( await page.locator( "#resource" ).textContent(), /Open related journey: Guild manager/ );
+		assert.match( await page.locator( "#resource" ).textContent() ?? "", /Open related journey: Guild manager/ );
 		await page.locator( "#resource button" ).click();
-		assert.match( await page.locator( "#title" ).textContent(), /Guild manager.*vote/ );
+		assert.match( await page.locator( "#title" ).textContent() ?? "", /Guild manager.*vote/ );
 		await fixture();
 		await page.locator( "#inventory-tab" ).click();
 		const unmapped = exported.resources.find( row => row.availability === "unmapped resource" );
 		assert.ok( unmapped, "The native inventory should retain unmapped resources" );
 		await page.locator( "#search" ).fill( unmapped.name );
 		await page.locator( `[data-journey-id="resource:${unmapped.name}"]` ).click();
-		assert.match( await page.locator( "#resource" ).textContent(), /No supported scenario/ );
+		assert.match( await page.locator( "#resource" ).textContent() ?? "", /No supported scenario/ );
 		const family = exported.familyCoverage.find( row => row.id === "academy" );
 		assert.ok( family.states.some( row => row.id === "breadth:academy-member" ) );
 		assert.match( family.remaining, /graduation/ );
 		await page.locator( "#search" ).fill( "" );
 		await page.locator( "#coverage-tab" ).click();
 		await page.locator( '[data-journey-id="coverage:academy"]' ).click();
-		assert.match( await page.locator( "#limits" ).textContent(), /graduation/ );
+		assert.match( await page.locator( "#limits" ).textContent() ?? "", /graduation/ );
 		await page.locator( "#resource button" ).filter( { hasText: "member permission" } ).click();
 		await fixture();
-		assert.match( await page.locator( "#title" ).textContent(), /member permission/ );
+		assert.match( await page.locator( "#title" ).textContent() ?? "", /member permission/ );
 		assert.deepEqual( failures, [] );
 		assert.deepEqual( network, [] );
 		console.log(

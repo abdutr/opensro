@@ -6,7 +6,7 @@ Each recipe names its production entry and its evidence. These snapshots never
 replace production rendering, modal ownership, validation or request reducers.
 ===========================================================================
 */
-import type { EntryFixture } from "../../tests/helpers/ui-entry-recipes.mjs";
+import type { EntryFixture } from "./shared/entry-recipes.mjs";
 import type { Platform } from "../../src/engine/contracts/runtime";
 import type { createBugReportDialog } from "../../src/engine/runtime/bug-report/dialog";
 import type { Journey } from "./scenarios";

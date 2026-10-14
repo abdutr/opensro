@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
 import { UI_QA_ORIGIN } from "./settings.mjs";
-import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { artifactDirectory, guardReviewRequests, reviewFrame } from "./probe-support.mjs";
 import { fetchCatalog } from "./catalog-client.mjs";
 
 const directory = artifactDirectory( "boundaries" );
@@ -30,8 +30,7 @@ async function fixture() {
 	await page.waitForFunction( () =>
 		document.querySelector( "#viewport-frame" )?.getAttribute( "src" )?.includes( "frame.html" )
 	);
-	const handle = await page.locator( "#viewport-frame" ).elementHandle(), frame = await handle.contentFrame();
-	await frame.waitForURL( new URL( await page.locator( "#viewport-frame" ).getAttribute( "src" ), page.url() ).href );
+	const frame = await reviewFrame( page );
 	await frame.waitForFunction( () => window.__uiQa?.snapshot().ready || window.__uiQa?.snapshot().error );
 	await frame.waitForFunction( () => window.__uiQa.snapshot().stats.pending === 0 );
 	const report = await frame.evaluate( () => window.__uiQa.snapshot() );
@@ -120,7 +119,8 @@ async function guild() {
 	await contents.press( "Control+Home" );
 	for ( let i = 0; i < 5; i++ ) await contents.press( "Shift+ArrowRight" );
 	await frame.waitForFunction( () => {
-		const input = document.querySelector( '[data-ui-id="social-contents"]' );
+		const input =
+			/** @type {HTMLTextAreaElement | null} */ (document.querySelector( '[data-ui-id="social-contents"]' ));
 		return input?.selectionStart === 0 && input.selectionEnd === 5;
 	} );
 	await capture( frame, "guild-multiline-selection" );
@@ -207,11 +207,13 @@ async function hud() {
 	await frame.getByRole( "button", { name: "Cancel", exact: true } ).click();
 	frame = await choose( "Tools and availability" );
 	const gap = await frame.evaluate( () => {
-		const a = document.querySelector( "#developer-toggle" ).getBoundingClientRect(),
-			b = document.querySelector( "#fps-toggle" ).getBoundingClientRect();
+		const developer = document.querySelector( "#developer-toggle" ), fps = document.querySelector( "#fps-toggle" );
+		if ( !developer || !fps ) throw Error( "the tool toggles are missing" );
+		const a = developer.getBoundingClientRect(), b = fps.getBoundingClientRect();
 		return { x: (a.right + b.left) / 2, y: a.y + a.height / 2 };
 	} );
 	const outer = await page.locator( "#viewport-frame" ).boundingBox();
+	if ( !outer ) throw Error( "the review frame has no box" );
 	await page.mouse.click( outer.x + gap.x, outer.y + gap.y );
 	await frame.waitForFunction( () =>
 		window.__uiQa.snapshot().trace.some( row => row.kind === "world click-through" )
@@ -284,7 +286,7 @@ async function ledger() {
 	}, current.identity );
 	await page.reload();
 	await fixture();
-	assert.match( await page.locator( "#review-status" ).textContent(), /Needs recheck/ );
+	assert.match( await page.locator( "#review-status" ).textContent() ?? "", /Needs recheck/ );
 	const download = page.waitForEvent( "download" );
 	await page.locator( "#export" ).click();
 	await (await download).saveAs( `${directory}/stale-export.json` );
@@ -297,11 +299,11 @@ async function ledger() {
 	await page.locator( "#save-review" ).click();
 	await page.waitForFunction( () => document.querySelector( "#save-status" )?.textContent?.startsWith( "Saved" ) );
 	assert.match(
-		await page.locator( "#navigation button" ).filter( { hasText: "Tools and availability" } ).textContent(),
+		await page.locator( "#navigation button" ).filter( { hasText: "Tools and availability" } ).textContent() ?? "",
 		/Reviewed checkpoint/
 	);
 	const saved = await page.evaluate( () =>
-		JSON.parse( localStorage.getItem( "opensro.ui-qa.reviews.v1" ) ).at( -1 )
+		JSON.parse( localStorage.getItem( "opensro.ui-qa.reviews.v1" ) ?? "[]" ).at( -1 )
 	);
 	assert.equal( saved.identity.sourceHash, current.identity.sourceHash );
 	assert.equal( saved.identity.assetHash, current.identity.assetHash );

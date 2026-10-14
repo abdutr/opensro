@@ -14,6 +14,23 @@ export const UI_QA_REPOSITORY_ROOT = fileURLToPath( new URL( "../../../../", imp
 
 /*
 ================
+reviewFrame
+
+The workbench's game frame, loaded. Fails loudly instead of handing a probe
+a null frame.
+================
+*/
+/** @param {import("playwright-core").Page} page */
+export async function reviewFrame( page ) {
+	const viewport = page.locator( "#viewport-frame" );
+	const frame = await (await viewport.elementHandle())?.contentFrame(), source = await viewport.getAttribute( "src" );
+	if ( !frame || !source ) throw Error( "the review frame did not load" );
+	await frame.waitForURL( new URL( source, page.url() ).href );
+	return frame;
+}
+
+/*
+================
 artifactDirectory
 ================
 */
@@ -50,9 +67,15 @@ uses the same isolation policy and real workers still load local assets.
 ================
 */
 /**
- * @param {{ route(pattern: string, handler: (route: {
- * request(): { url(): string }, continue(): Promise<void>, abort(reason: string): Promise<void>
- * }) => Promise<void>): Promise<void> }} context
+ * @typedef {{
+ *   request(): { url(): string },
+ *   continue(): Promise<unknown>,
+ *   abort( errorCode?: string ): Promise<unknown>
+ * }} GuardedRoute
+ */
+/**
+ * @param {{ route( url: string, handler: ( route: GuardedRoute ) => unknown ): Promise<unknown> }} context
+ *   A Playwright BrowserContext, or any context that routes the same way.
  * @param {string[]} blocked
  */
 export async function guardReviewRequests( context, blocked ) {

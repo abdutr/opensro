@@ -39,7 +39,7 @@ export const prototypeScope = {
 			inspect: populated[name] ?? "surface:" + name,
 			browse:
 				"Use the production tabs, lists, selection, scroll and local dialogs. Server submission is captured.",
-			source: "foundation/ui/panels.ts; tests/helpers/ui-entry-recipes.mjs; runtime/ui/ui.ts"
+			source: "foundation/ui/panels.ts; tools/ui-qa/shared/entry-recipes.mjs; runtime/ui/ui.ts"
 		}) ),
 		additionalLayouts: [
 			[

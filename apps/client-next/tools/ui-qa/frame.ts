@@ -6,7 +6,7 @@ Reset replaces this iframe and disposes every owner. Only Stall uses real
 request/reply reducers; no outgoing command reaches a game or report server.
 ===========================================================================
 */
-import { createUi } from "../../src/engine/runtime/ui/ui";
+import { createUiHarness } from "./shared/ui-harness";
 import { createAssets } from "../../src/engine/runtime/assets/assets";
 import { createRenderer } from "../../src/engine/runtime/renderer/renderer";
 import { createPlatform } from "../../src/engine/runtime/platform/platform";
@@ -19,8 +19,8 @@ import { guildSnapshot, journeys, seedJourney, stallOffers } from "./scenarios";
 import "../../src/engine/runtime/platform/loading.css";
 import "../../src/engine/runtime/bug-report/bug-report.css";
 import productionHtml from "../../index.html?raw";
-import { OPENERS, SERVICE_WINDOWS } from "../../tests/helpers/ui-entry-recipes.mjs";
-import { entryEvidence } from "../../tests/helpers/ui-entry-evidence.mjs";
+import { OPENERS, SERVICE_WINDOWS } from "./shared/entry-recipes.mjs";
+import { entryEvidence } from "./shared/entry-evidence.mjs";
 import { extendedRecipes } from "./extended";
 import { createFrontendFixture } from "./frontend-fixture";
 import { createStageFixture } from "./frontend-stage-fixture";
@@ -183,15 +183,15 @@ function backdrop( width: number, height: number ): UiQuad[] {
 	return rows;
 }
 
-const ui = createUi(
+const ui = createUiHarness( {
 	assets,
-	command => {
+	commands: command => {
 		if ( command.kind === "gameplay" && command.command.kind.startsWith( "stall-" ) ) {
 			queue.push( command );
 			record( "command queued", command );
 		} else record( "unsupported integration", command );
 	},
-	scene => {
+	publish: scene => {
 		sceneTextures = [ ...new Set( scene?.quads.map( quad => quad.texture ) ?? [] ) ];
 		sceneAnchors = [
 			...new Set(
@@ -212,10 +212,22 @@ const ui = createUi(
 				null
 		);
 	},
-	( name, texture ) => renderer.setUiTexture( name, texture ),
-	location.origin,
-	"https://fixture.invalid"
-);
+	texture: ( name, texture ) => renderer.setUiTexture( name, texture ),
+	base: location.origin,
+	apiBase: "https://fixture.invalid"
+} );
+
+/*
+================
+uiView
+
+The fixture's state as the production UiView, typed field by field: a
+change to the UiView contract breaks this build instead of passing a cast.
+================
+*/
+function uiView(): UiView {
+	return { ...state, ...platform.readUiViewport(), worldReady: state.worldReady ?? true };
+}
 
 /*
 ================
@@ -638,7 +650,7 @@ async function draw( time: number ) {
 		stageFixture.step( clock );
 		const mallPreview = stageFixture.mallPreviewState();
 		if ( mallPreview ) ui.mallPreviewState( mallPreview );
-		const next = ui.step( { ...state, ...platform.readUiViewport() } as unknown as UiView, clock );
+		const next = ui.step( uiView(), clock );
 		if ( next ) {
 			semantics = next;
 			platform.presentUi( next );
@@ -721,5 +733,14 @@ window.addEventListener( "message", message => {
 } );
 window.addEventListener( "pagehide", dispose, { once: true } );
 // Explicit read/action seam for the owned browser probe; never patches source.
-Object.assign( window, { __uiQa: { snapshot, action, event } } );
+/*
+================
+UiQaApi
+
+What the frame exposes to the workbench and the probes (page-globals.d.ts).
+================
+*/
+export type UiQaApi = { snapshot: typeof snapshot; action: typeof action; event: typeof event; };
+const api: UiQaApi = { snapshot, action, event };
+Object.assign( window, { __uiQa: api } );
 animation = requestAnimationFrame( draw );

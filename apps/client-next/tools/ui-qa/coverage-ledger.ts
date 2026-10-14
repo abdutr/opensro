@@ -106,7 +106,7 @@ const families = [
 		"panels",
 		"Other registered panels and dialogs",
 		/.*/,
-		"foundation/ui/panels.ts; tests/helpers/ui-entry-recipes.mjs",
+		"foundation/ui/panels.ts; tools/ui-qa/shared/entry-recipes.mjs",
 		"Each panel has entry evidence only until populated states, permission/selection/scroll/modal/async transitions are reviewed."
 	]
 ] as const;

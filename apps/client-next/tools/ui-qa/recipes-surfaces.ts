@@ -8,7 +8,7 @@ need representative operation, not every possible server outcome.
 */
 import type { ExtendedRecipe, RecipeContext } from "./extended";
 import { herb, npc, openPanel, press } from "./recipe-input";
-import { OPENERS, SERVICE_WINDOWS } from "../../tests/helpers/ui-entry-recipes.mjs";
+import { OPENERS, SERVICE_WINDOWS } from "./shared/entry-recipes.mjs";
 import { npcGid } from "../../src/engine/foundation/gameplay/npc-dialogue";
 
 /*
@@ -115,7 +115,7 @@ export const surfaceRecipes: readonly ExtendedRecipe[] = [
 		id: "inspect:storage",
 		title: "Storage - populated room and gold",
 		family: "Services",
-		source: "runtime/ui/ui.ts Storage; tests/helpers/ui-entry-recipes.mjs",
+		source: "runtime/ui/ui.ts Storage; tools/ui-qa/shared/entry-recipes.mjs",
 		controls: [ "storage-slot:0", "storage-gold" ],
 		async open( context ) {
 			await OPENERS.Storage!( context, context.step );

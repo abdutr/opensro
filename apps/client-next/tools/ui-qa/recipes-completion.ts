@@ -7,7 +7,7 @@ Server responses are never synthesized as consequences of submitted commands.
 ===========================================================================
 */
 import type { ExtendedRecipe, RecipeContext } from "./extended";
-import { OPENERS } from "../../tests/helpers/ui-entry-recipes.mjs";
+import { OPENERS } from "./shared/entry-recipes.mjs";
 import { fixtureGuild, guildMember, herb, openPanel, press } from "./recipe-input";
 import { defaultGameOptions } from "../../src/engine/foundation/gameplay/game-options";
 

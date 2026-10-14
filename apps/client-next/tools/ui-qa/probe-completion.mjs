@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
 import { UI_QA_ORIGIN } from "./settings.mjs";
-import { artifactDirectory, guardReviewRequests } from "./probe-support.mjs";
+import { artifactDirectory, guardReviewRequests, reviewFrame } from "./probe-support.mjs";
 import { fetchCatalogIdentity } from "./catalog-client.mjs";
 const directory = artifactDirectory( "completion" );
 await mkdir( directory, { recursive: true } );
@@ -26,8 +26,7 @@ choose
 */
 async function choose( id ) {
 	await page.locator( `[data-journey-id="${id}"]` ).click();
-	const frame = await (await page.locator( "#viewport-frame" ).elementHandle()).contentFrame();
-	await frame.waitForURL( new URL( await page.locator( "#viewport-frame" ).getAttribute( "src" ), page.url() ).href );
+	const frame = await reviewFrame( page );
 	await frame.waitForFunction(
 		() => {
 			const value = window.__uiQa?.snapshot();
@@ -109,7 +108,7 @@ try {
 		"Synthetic populated listing; portable exact integer evidence. Human parity unreviewed."
 	);
 	await page.locator( "#save-review" ).click();
-	await page.waitForFunction( () => document.querySelector( "#save-status" ).textContent.includes( "Saved" ) );
+	await page.waitForFunction( () => document.querySelector( "#save-status" )?.textContent?.includes( "Saved" ) );
 	const download = page.waitForEvent( "download" );
 	await page.locator( "#export" ).click();
 	await (await download).saveAs( `${directory}/review-export.json` );
