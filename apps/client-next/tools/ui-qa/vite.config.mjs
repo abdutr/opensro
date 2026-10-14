@@ -21,16 +21,24 @@ function reviewServer() {
 	return {
 		name: "local-ui-review",
 		configureServer( server ) {
+			// The catalogue walks every source and asks git twice: build it once
+			// and again only after a watched file changes, never per request.
+			let catalog = null;
+			server.watcher.on( "all", () => {
+				catalog = null;
+			} );
 			server.middlewares.use( ( request, response, next ) => {
 				response.setHeader(
 					"Content-Security-Policy",
-					"default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'"
+					`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:${UI_QA_PORT}; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'`
 				);
 				if ( request.url === "/" ) {
 					response.writeHead( 302, { Location: "/tools/ui-qa/index.html" } );
 					return response.end();
 				}
-				if ( request.url?.startsWith( "/api/" ) || request.url?.startsWith( "/shard/" ) ) {
+				// The client's game routes: the Agent API and the shards' edge
+				// routes (vite.config.mjs shardRoutes, "/shards/<id>").
+				if ( request.url?.startsWith( "/api/" ) || request.url?.startsWith( "/shards/" ) ) {
 					response.writeHead( 403 );
 					return response.end( "No game connection in UI review" );
 				}
@@ -40,11 +48,14 @@ function reviewServer() {
 					return response.end();
 				}
 				try {
+					catalog ??= JSON.stringify( readCatalog() );
 					response.writeHead( 200, { "Content-Type": "application/json", "Cache-Control": "no-store" } );
-					response.end( JSON.stringify( readCatalog() ) );
+					response.end( catalog );
 				} catch ( error ) {
+					// The cause, with its machine paths, stays in the server log.
+					server.config.logger.error( `UI QA catalogue failed: ${String( error )}` );
 					response.statusCode = 500;
-					response.end( JSON.stringify( { error: String( error ) } ) );
+					response.end( JSON.stringify( { error: "UI QA catalogue unavailable" } ) );
 				}
 			} );
 		}

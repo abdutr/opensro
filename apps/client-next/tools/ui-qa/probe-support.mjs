@@ -6,6 +6,7 @@ The guard prevents external HTTP requests from pages, frames and workers in
 the owned browser context. Its blocked list records attempts, not requests sent.
 ===========================================================================
 */
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { UI_QA_ORIGIN } from "./settings.mjs";
@@ -61,5 +62,26 @@ export async function guardReviewRequests( context, blocked ) {
 		if ( isLocalReviewRequest( url ) ) return route.continue();
 		blocked.push( url );
 		await route.abort( "blockedbyclient" );
+	} );
+}
+
+/*
+================
+unboundPort
+
+A loopback port the system just handed out and this process released, so
+nothing listens on it: a request there reaches no real local service.
+================
+*/
+/** @returns {Promise<number>} */
+export function unboundPort() {
+	return new Promise( ( resolve, reject ) => {
+		const server = net.createServer();
+		server.once( "error", reject );
+		server.listen( 0, "127.0.0.1", () => {
+			const address = server.address();
+			const port = typeof address === "object" && address ? address.port : 0;
+			server.close( () => port ? resolve( port ) : reject( Error( "No loopback port" ) ) );
+		} );
 	} );
 }

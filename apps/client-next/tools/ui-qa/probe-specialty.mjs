@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { launchProbeBrowser } from "../../../../scripts/lib/probeBrowser.mjs";
 import { UI_QA_ORIGIN } from "./settings.mjs";
-import { artifactDirectory, guardReviewRequests, isLocalReviewRequest } from "./probe-support.mjs";
+import { artifactDirectory, guardReviewRequests, isLocalReviewRequest, unboundPort } from "./probe-support.mjs";
 import { fetchCatalogIdentity } from "./catalog-client.mjs";
 
 const directory = artifactDirectory( "specialty" );
@@ -78,14 +78,16 @@ try {
 	// Deliberately attempt another loopback port from the owned page.
 	// This proves actual request prevention; zero requests in the scenario alone
 	// would only prove that the scenario did not attempt an external connection.
-	const target = "http://127.0.0.1:5190/__uiqa-guard-challenge";
+	// A port bound and released just now: nothing listens there, so even a
+	// broken guard could reach no real local service.
+	const target = `http://127.0.0.1:${await unboundPort()}/__uiqa-guard-challenge`;
 	const failed = page.waitForEvent( "requestfailed" );
 	await assert.rejects( page.goto( target ), /ERR_BLOCKED_BY_CLIENT/ );
 	const failure = (await failed).failure();
 	assert.deepEqual( blockedAttempts, [ target ] );
 	guardChallenge = { target, failure, blockedAttempts: [ ...blockedAttempts ], scenarioNetwork };
 	assert.equal( (await page.request.get( UI_QA_ORIGIN + "/api/health" )).status(), 403 );
-	assert.equal( (await page.request.get( UI_QA_ORIGIN + "/shard/test" )).status(), 403 );
+	assert.equal( (await page.request.get( UI_QA_ORIGIN + "/shards/test" )).status(), 403 );
 	assert.equal( (await fetchCatalogIdentity()).fingerprint, identity.fingerprint );
 	outcome = "passed";
 	console.log(

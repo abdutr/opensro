@@ -20,6 +20,8 @@ const checkout = path.resolve( app, "../.." );
 /*
 ================
 walk
+
+Local on purpose: scripts/lib has no directory walker to share.
 ================
 */
 function walk( directory, extensions ) {
@@ -114,7 +116,12 @@ export function readCatalog() {
 	const identity = { codeSha, sourceHash, assetHash, defineHash, fontHash };
 	return {
 		identity: { ...identity, fingerprint: hash( JSON.stringify( identity ) ), dirty: !!dirty },
-		roots: { checkout, native: clientV150ResinfoRoot, published: layouts },
+		// Repository-relative: the page never learns this machine's paths.
+		roots: {
+			checkout: ".",
+			native: path.relative( checkout, clientV150ResinfoRoot ).replaceAll( "\\", "/" ),
+			published: path.relative( checkout, layouts ).replaceAll( "\\", "/" )
+		},
 		limitations:
 			"Literal references are triage only. Authored sections are not runtime windows. Font metadata hash does not certify every image byte.",
 		resources
