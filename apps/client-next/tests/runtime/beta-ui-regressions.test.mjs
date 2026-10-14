@@ -288,6 +288,29 @@ test("pet window rejects empty and dead rosters and closes when its last pet dis
 	}
 });
 
+test("a pet without the setting tab shows it as native disables it: no tab plate, input refused", () => {
+	const f = createFixture();
+	try {
+		// band 3 is an attack pet: 6A1920 disables Setting (class 2 only).
+		f.setGame( { cosRecords: [ { gid: 7, refObjId: 100, band: 3, hp: 100, mp: 0, status: 0, dead: false } ] } );
+		f.ui.event( { kind: "key", code: "Insert" } );
+		const semantics = f.step();
+		const quads = f.scene()?.quads ?? [];
+		const plateAt = id => {
+			const tab = semantics?.controls.find( c => c.id === id );
+			assert.ok( tab, id );
+			return quads.some( q =>
+				q.texture.includes( "/com_long_tab_" ) && q.rect[0] === tab.rect[0] && q.rect[1] === tab.rect[1]
+			);
+		};
+		assert.equal( semantics?.controls.find( c => c.id === "cos-tab:2" )?.disabled, true );
+		assert.equal( plateAt( "cos-tab:2" ), false, "6A1370 passes no disabled texture: the plate is not drawn" );
+		assert.equal( plateAt( "cos-tab:0" ), true, "an enabled tab keeps its plate" );
+	} finally {
+		f.ui.dispose();
+	}
+});
+
 test("party registration submits formation options even when an empty social snapshot exists", () => {
 	const f = createFixture();
 	try {

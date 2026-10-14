@@ -634,6 +634,22 @@ const SKIN_PANEL = "Skin change";
 // CIFWholeChat, the Global Chatting item's window, and its line's edit box.
 const GLOBAL_CHAT_PANEL = "Global chat";
 const GLOBAL_CHAT_TEXT = "wholechat-text";
+/*
+================
+cosTabClassDisabled
+
+Whether CIFCosInventory_BindCompanion (6A1920) disables a COS tab for the
+record: the inventory tab without a bag, the setting tab on any record but
+the pickup pet (class 2, band 4).
+================
+*/
+function cosTabClassDisabled(
+	tab: number,
+	record: { readonly inventory?: unknown; readonly band?: number; } | undefined
+) {
+	return tab === 1 ? !record?.inventory : tab === 2 ? record?.band !== 4 : false;
+}
+
 // CIFSpecialtyDeal, the trade goods window, and its quantity edit (control 30).
 const SPECIALTY_DEAL_PANEL = "Specialty deal";
 const SPECIALTY_DEAL_COUNT = "specialty-deal-count";
@@ -8808,6 +8824,13 @@ export function createUi(
 			/*
 			================
 			nativeTab
+
+			disabledPlate opts into the native disabled look
+			(CIFSelectableButton_SetDisabled 537520): the face becomes the
+			SetStateTextures disabled path, null when the window passes "" (the
+			COS tabs, CIFCOS_Initialize 6A1370), and the label takes font state
+			3. Without it a disabled tab only refuses input, as a window that
+			merely clears the enabled flag (CGWndBase_SetEnabledFlag) shows it.
 			================
 			*/
 			function nativeTab(
@@ -8815,24 +8838,33 @@ export function createUi(
 				caption: string,
 				r: UiRect,
 				selected: boolean,
-				style: { family: string; disabled?: boolean; client?: UiRect; }
+				style: { family: string; disabled?: boolean; disabledPlate?: string | null; client?: UiRect; }
 			) {
 				const { family, disabled = false, client = [ 0, 0, 0, 0 ] } = style;
+				const nativeDisabled = disabled && style.disabledPlate !== undefined;
 				const content: UiRect = [
 					r[0] + client[0],
 					r[1] + client[1],
 					r[2] - client[0] - client[2],
 					r[3] - client[1] - client[3]
 				];
-				const path = ROOT + "interface/ifcommon/" + family + (selected ? "_on" : "_off") + ".png";
-				image( r, path );
+				const path = nativeDisabled ?
+					style.disabledPlate :
+					ROOT + "interface/ifcommon/" + family + (selected ? "_on" : "_off") + ".png";
+				if ( path ) image( r, path );
 				controls.push( { id, label: caption, rect: r, kind: "button", selected, disabled } );
 				quads.push(
-					...text.quads( caption, content, full, white, {
-						hAlign: 1,
-						vAlign: 1,
-						fontStyle: selected ? 2 : 0
-					} )
+					...text.quads(
+						caption,
+						content,
+						full,
+						buttonTextColor( white, buttonAccess( false, nativeDisabled ) ),
+						{
+							hAlign: 1,
+							vAlign: 1,
+							fontStyle: selected ? 2 : 0
+						}
+					)
 				);
 			}
 			equipmentWarningVisible = false;
@@ -15008,8 +15040,11 @@ export function createUi(
 							{
 								family: "com_long_tab",
 								client: [ 3, 6, 6, 0 ],
-								disabled: panel === "Shop" ||
-									(i === 1 ? !record?.inventory : i === 2 ? record?.band !== 4 : false)
+								disabled: panel === "Shop" || cosTabClassDisabled( i, record ),
+								// 6A1920 disables a tab the record's class lacks through
+								// SetDisabled, whose face is the "" disabled path 6A1370
+								// passes: no plate. Beside a shop they only refuse input.
+								...(cosTabClassDisabled( i, record ) ? { disabledPlate: null } : {})
 							}
 						)
 					);
