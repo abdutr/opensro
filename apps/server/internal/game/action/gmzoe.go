@@ -24,19 +24,25 @@ import (
 	"opensro.online/server/internal/game/world/simulation"
 )
 
+// The ordinary GM spawn owner caps one request at 250; /ZOE's native u8
+// count permits 255, so the tail gets its own ordinary spawn request.
+const gmZoeSpawnBatchLimit = 250
+
 /*
 ================
 KillGMZoe
 
 Loads count monsters of refObjID at the GM's position and kills each with the
-ordinary reward settlement. Returns how many were spawned and killed; zero
-refuses the command (unknown or non-monster reference, or no admission).
+ordinary reward settlement. Returns whether any kill committed; an unknown
+reference or missing admission refuses the command before spawning.
 ================
 */
 func (rt *Runtime) KillGMZoe(division, name string, refObjID uint32, count uint8) bool {
 	if rt == nil || rt.deps == nil || rt.Monsters == nil {
 		return false
 	}
+	unlockPublication := rt.LockPublication(division)
+	defer unlockPublication()
 	unlock := rt.lockDivision(division)
 	defer unlock()
 	c := rt.findCharacter(division, name)
@@ -53,11 +59,25 @@ func (rt *Runtime) KillGMZoe(division, name string, refObjID uint32, count uint8
 		rt.noteGMKillRefusal(division, name, refObjID, "zoe-zero-count")
 		return false
 	}
+	if ref, found := rt.Monsters.Reference(refObjID); !found || ref.MaxHP == 0 || ref.Structure {
+		rt.noteGMKillRefusal(division, name, refObjID, "zoe-invalid-monster-reference")
+		return false
+	}
 	now := rt.Now().UnixMilli()
-	gids := rt.Monsters.SpawnGMMonstersTracked(simulation.GMMonsterSpawn{
+	request := simulation.GMMonsterSpawn{
 		Division: division, Population: lease, RefObjID: refObjID, Count: count, Type: 0, NowMs: now,
 		Position: rt.liveSpawn(simulation.WorldKey(division, c.Name), c, now),
-	})
+	}
+	var gids []uint32
+	for remaining := int(count); remaining > 0; {
+		request.Count = uint8(min(remaining, gmZoeSpawnBatchLimit))
+		created := rt.Monsters.SpawnGMMonstersTracked(request)
+		gids = append(gids, created...)
+		remaining -= int(request.Count)
+		if len(created) != int(request.Count) {
+			break
+		}
+	}
 	if len(gids) == 0 {
 		rt.noteGMKillRefusal(division, name, refObjID, "zoe-spawn-refused")
 		return false
@@ -68,7 +88,9 @@ func (rt *Runtime) KillGMZoe(division, name string, refObjID uint32, count uint8
 		if !found || target.CurrentHP == 0 {
 			continue
 		}
-		frames, killed := rt.killGMKillTarget(division, c, target, true, now)
+		frames, killed := rt.killGMKillTarget(division, c, gmKillTarget{
+			instance: target, rewards: true, dropSource: enterworld.ObjectIDForCharacter(c),
+		}, now)
 		if killed {
 			batches = append(batches, frames...)
 		}

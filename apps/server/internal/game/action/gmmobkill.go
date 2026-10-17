@@ -57,6 +57,8 @@ func (rt *Runtime) KillGMMonster(division, name string, gid uint32, rewards bool
 	if rt == nil || rt.deps == nil || rt.Monsters == nil {
 		return false
 	}
+	unlockPublication := rt.LockPublication(division)
+	defer unlockPublication()
 	unlock := rt.lockDivision(division)
 	defer unlock()
 	c := rt.findCharacter(division, name)
@@ -64,13 +66,13 @@ func (rt *Runtime) KillGMMonster(division, name string, gid uint32, rewards bool
 		rt.noteGMKillRefusal(division, name, gid, "sender-not-a-live-gm")
 		return false
 	}
-	if _, admitted := rt.EntryPopulationLease(division, c.Name); !admitted {
+	lease, admitted := rt.EntryPopulationLease(division, c.Name)
+	if !admitted {
 		rt.noteGMKillRefusal(division, name, gid, "sender-not-in-the-world")
 		return false
 	}
-	// The selection reaches the GM's own object map; where the monster is
-	// routed is the population's business, not the sender's world.
-	target, found := rt.Monsters.Get(division, gid)
+	// A stale selection after a world transfer must not affect the old world.
+	target, found := rt.Monsters.GetInPopulation(division, lease, gid)
 	if !found {
 		rt.noteGMKillRefusal(division, name, gid, "no-such-monster")
 		return false
@@ -84,13 +86,27 @@ func (rt *Runtime) KillGMMonster(division, name string, gid uint32, rewards bool
 		return false
 	}
 	now := rt.Now().UnixMilli()
-	batches, killed := rt.killGMKillTarget(division, c, target, rewards, now)
+	batches, killed := rt.killGMKillTarget(division, c, gmKillTarget{instance: target, rewards: rewards, dropSource: gid}, now)
 	if !killed {
 		rt.noteGMKillRefusal(division, name, gid, "kill-not-committed")
 		return false
 	}
 	rt.queueMonsterLegFrames(batches)
 	return true
+}
+
+/*
+================
+gmKillTarget
+
+Existing victims publish drops around themselves. Newly created /ZOE victims
+publish drops around the GM's colocated point, whose scope is already live.
+================
+*/
+type gmKillTarget struct {
+	instance   monster.Instance
+	rewards    bool
+	dropSource uint32
 }
 
 /*
@@ -102,7 +118,8 @@ the ordinary reward settlement when rewards is true, and the ordinary defeat
 lifecycle. Returns the frames to publish and whether the kill committed.
 ================
 */
-func (rt *Runtime) killGMKillTarget(division string, c *enterworld.Character, target monster.Instance, rewards bool, now int64) ([]simulation.DivisionFrames, bool) {
+func (rt *Runtime) killGMKillTarget(division string, c *enterworld.Character, request gmKillTarget, now int64) ([]simulation.DivisionFrames, bool) {
+	target, rewards := request.instance, request.rewards
 	gid := target.Gid
 	plan := simulation.MonsterDamagePlan{GID: gid, ExpectedHP: target.CurrentHP, Damage: target.CurrentHP}
 	var impacts []simulation.MonsterDamageResult
@@ -131,22 +148,30 @@ func (rt *Runtime) killGMKillTarget(division string, c *enterworld.Character, ta
 			return nil, false
 		}
 	}
-	public := []wire.Frame{monsterLifeDeadFrame(gid)}
+	batches := []simulation.DivisionFrames{{DivisionID: division, SourceGID: gid, Frames: simFrames([]wire.Frame{monsterLifeDeadFrame(gid)})}}
 	if rewards {
-		public = append(public, rt.groundReferences(settlement.drops)...)
+		drops := rt.groundReferences(settlement.drops)
 		for _, drop := range settlement.drops {
-			public = append(public, wire.DropBroadcastFrames(drop.SpawnRow(true))...)
+			drops = append(drops, wire.DropBroadcastFrames(drop.SpawnRow(true))...)
+		}
+		if len(drops) > 0 {
+			batches = append(batches, simulation.DivisionFrames{DivisionID: division, SourceGID: request.dropSource, Frames: simFrames(drops)})
 		}
 		rt.announceSealDrops(division, target.Ref.Name, settlement.drops, now)
-		public = append(public, settlement.public...)
 	}
 	rt.queueMonsterDefeat(division, gid, now+monsterDeathPresentationRetention.Milliseconds())
-	batches := []simulation.DivisionFrames{{DivisionID: division, SourceGID: enterworld.ObjectIDForCharacter(c), Frames: simFrames(public)}}
+	// Death and drops belong to the victim's visibility scope, while level-up
+	// and other progression visuals belong to the credited player's scope.
+	if len(settlement.public) > 0 {
+		batches = append(batches, simulation.DivisionFrames{DivisionID: division, SourceGID: enterworld.ObjectIDForCharacter(c), Frames: simFrames(settlement.public)})
+	}
 	if private := wire.ProgressionPrivateFrames(settlement.actorFrames); len(private) > 0 {
 		batches = append(batches, simulation.DivisionFrames{DivisionID: division, OnlyCharacterID: c.ID, Frames: simFrames(private)})
 	}
 	batches = append(batches, recipientDivisionFrames(division, settlement.others)...)
-	return batches, true
+	// Entry cannot start between settlement and capture: both entry points
+	// retain the outer publication gate, before taking the division lock.
+	return rt.sealTickPrivate(batches), true
 }
 
 /*

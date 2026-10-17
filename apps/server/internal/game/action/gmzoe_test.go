@@ -11,6 +11,7 @@ reward settlement; a refusal spawns nothing and kills nothing.
 package action
 
 import (
+	"fmt"
 	"testing"
 
 	"opensro.online/server/internal/game/enterworld"
@@ -19,6 +20,11 @@ import (
 
 const zoeTestRegion = uint16(0x62A8)
 
+/*
+================
+deadMonsters
+================
+*/
 func deadMonsters(rt *Runtime) int {
 	dead := 0
 	for _, row := range rt.Monsters.InstancesInRegions(testDivision, []uint16{zoeTestRegion}) {
@@ -78,5 +84,30 @@ func TestGMZoeRefusals(t *testing.T) {
 	}
 	if dead := deadMonsters(f.rt); dead != 0 {
 		t.Fatalf("refusals killed %d monsters", dead)
+	}
+}
+
+/*
+================
+TestGMZoeHonorsTheFullByteCount
+
+The /LOADMONSTER cap of 250 must not truncate /ZOE's last five victims.
+================
+*/
+func TestGMZoeHonorsTheFullByteCount(t *testing.T) {
+	for _, count := range []uint8{250, 251, 255} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			f := newMobKillFixture(t)
+			if !f.rt.KillGMZoe(testDivision, f.gm.Name, 1933, count) {
+				t.Fatal("zoe refused")
+			}
+			if deadMonsters(f.rt) != int(count) || f.calls != int(count) {
+				t.Fatalf("dead=%d paid=%d, want %d of each", deadMonsters(f.rt), f.calls, count)
+			}
+			original, _ := f.rt.Monsters.Get(testDivision, f.gid)
+			if original.CurrentHP == 0 {
+				t.Fatal("zoe killed a preexisting monster")
+			}
+		})
 	}
 }

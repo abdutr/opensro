@@ -17,8 +17,15 @@ import (
 
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/wire"
+	"opensro.online/server/internal/game/world/instance"
+	"opensro.online/server/internal/game/world/simulation"
 )
 
+/*
+================
+mobKillFixture
+================
+*/
 type mobKillFixture struct {
 	rt    *Runtime
 	clock *fakeClock
@@ -27,6 +34,11 @@ type mobKillFixture struct {
 	calls int
 }
 
+/*
+================
+newMobKillFixture
+================
+*/
 func newMobKillFixture(t *testing.T) *mobKillFixture {
 	t.Helper()
 	rt, clock, gm, target := newCombatTestRuntime(t, 1)
@@ -42,14 +54,20 @@ func newMobKillFixture(t *testing.T) *mobKillFixture {
 	return f
 }
 
-// opcodes returns every opcode the tick delivered, by recipient (0 = public).
+/*
+================
+opcodes
+
+Separate object-scoped public frames from this actor's private progression.
+================
+*/
 func (f *mobKillFixture) opcodes(t *testing.T) (public, private []uint16) {
 	t.Helper()
 	for _, batch := range f.rt.TickHook()(f.clock.Now().UnixMilli()) {
 		for _, frame := range batch.Frames {
 			if batch.OnlyCharacterID == f.gm.ID {
 				private = append(private, frame.Opcode)
-			} else if batch.SourceGID == enterworld.ObjectIDForCharacter(f.gm) {
+			} else if batch.SourceGID != 0 {
 				public = append(public, frame.Opcode)
 			}
 		}
@@ -57,6 +75,11 @@ func (f *mobKillFixture) opcodes(t *testing.T) (public, private []uint16) {
 	return public, private
 }
 
+/*
+================
+hasOp
+================
+*/
 func hasOp(ops []uint16, op uint16) bool {
 	for _, o := range ops {
 		if o == op {
@@ -148,5 +171,70 @@ func TestGMMobKillRefusals(t *testing.T) {
 		if f.calls > 1 {
 			t.Fatalf("the GM was paid %d times", f.calls)
 		}
+	}
+}
+
+/*
+================
+TestGMMobKillCannotCrossPopulations
+
+A stale GID from another instance never becomes a shard-wide kill command.
+================
+*/
+func TestGMMobKillCannotCrossPopulations(t *testing.T) {
+	for _, rewards := range []bool{false, true} {
+		f := newMobKillFixture(t)
+		other, status := f.rt.Monsters.AllocatePopulation(testDivision, instance.Pack(10, 1))
+		if status != instance.Success {
+			t.Fatal(status)
+		}
+		gids := f.rt.Monsters.SpawnGMMonstersTracked(simulation.GMMonsterSpawn{
+			Division: testDivision, Population: other, RefObjID: 1933, Count: 1,
+			Position: simulation.Spawn{RegionID: 0x62A8, X: 963, Y: 20, Z: 458}, NowMs: f.clock.NowMs(),
+		})
+		if len(gids) != 1 {
+			t.Fatal("other population spawn refused")
+		}
+		before, _ := f.rt.Monsters.Get(testDivision, gids[0])
+		if f.rt.KillGMMonster(testDivision, f.gm.Name, gids[0], rewards) {
+			t.Fatal("a foreign population's monster was killed")
+		}
+		after, _ := f.rt.Monsters.Get(testDivision, gids[0])
+		if before.CurrentHP != after.CurrentHP || f.calls != 0 || len(f.rt.drainMonsterLegRecipients()) != 0 {
+			t.Fatal("cross-population refusal changed HP, rewards or presentation")
+		}
+		if !f.rt.KillGMMonster(testDivision, f.gm.Name, f.gid, rewards) {
+			t.Fatal("same-population control kill refused")
+		}
+	}
+}
+
+/*
+================
+TestGMMobKillCapturesPrivateRewardsAtCommit
+================
+*/
+func TestGMMobKillCapturesPrivateRewardsAtCommit(t *testing.T) {
+	f := newMobKillFixture(t)
+	captured, delivered := false, false
+	f.rt.CaptureObjectFrames = func(division string, gid uint32) func([]wire.Frame) {
+		if division != testDivision || gid != enterworld.ObjectIDForCharacter(f.gm) {
+			t.Fatal("wrong progression recipient")
+		}
+		captured = true
+		return func(frames []wire.Frame) {
+			delivered = hasOpcode(frames, wire.OpExpUpdate)
+		}
+	}
+	if !f.rt.KillGMMonster(testDivision, f.gm.Name, f.gid, true) || !captured || delivered {
+		t.Fatal("private reward was not captured before queueing")
+	}
+	for _, batch := range f.rt.drainMonsterLegRecipients() {
+		if batch.Deliver != nil {
+			batch.Deliver()
+		}
+	}
+	if !delivered {
+		t.Fatal("captured reward was not delivered")
 	}
 }
