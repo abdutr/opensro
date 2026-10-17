@@ -3,6 +3,7 @@
 | Document | For |
 | --- | --- |
 | [GETTING_STARTED.md](GETTING_STARTED.md) | Running the server and client locally, from nothing |
+| [LOCAL_TESTING.md](LOCAL_TESTING.md) | Daily local build, deployment, browser testing and shutdown loop |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the server, client and asset pipeline fit together |
 | [ASSET_PIPELINE.md](ASSET_PIPELINE.md) | Building and packaging game data |
 | [ASSET_DELIVERY.md](ASSET_DELIVERY.md) | How game data reaches the browser: sizes, packs, the publication ledger, caching, data releases |
