@@ -31,6 +31,9 @@ func gmCommandHubHandler(deps Dependencies, presence PresenceView, status ...Bod
 			return
 		}
 		outcome := HandleGmCommand(deps, presence, divisionID, character, payload, status...)
+		// One line per GM request: an operator debugging a command needs to see
+		// the subcommand and its payload, not only the refusals.
+		log.Infof("gmcommand: 0x%04X from %s payload=% X ack=%v refusal=%q", opcode, character.Name, payload, outcome.Ack, outcome.Refusal)
 		if outcome.PrivilegeDenied {
 			audit.deny(divisionID, character.Name, s.ID, len(payload), time.Now())
 		} else if outcome.Refusal != "" {
