@@ -60,11 +60,12 @@ func (rt *Runtime) prepareUniqueEquipment(ctx uniqueDropContext, nonRepair bool)
 	if !ok {
 		return grounditem.Item{}, false, false
 	}
-	group, ok := loot.SpecialEquipmentGroup(ctx.mob.Ref.Level)
+	level := rt.uniqueDropTableLevel(ctx.mob)
+	group, ok := loot.SpecialEquipmentGroup(level)
 	if !ok {
 		return grounditem.Item{}, false, false
 	}
-	chosen, ok := loot.SelectEquipment(country, group, false, ctx.mob.Ref.Level, rt.DropRoll)
+	chosen, ok := loot.SelectEquipment(country, group, false, level, rt.DropRoll)
 	if !ok {
 		return grounditem.Item{}, false, false
 	}

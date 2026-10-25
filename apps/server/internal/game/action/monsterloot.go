@@ -180,6 +180,25 @@ const dropGradeSeven = 7
 
 /*
 ================
+uniqueDropTableLevel
+
+The level a unique's equipment tables roll at. Native, and with
+SRO_UNIQUE_MAX_LEVEL_LOOT off, it is the unique's own level. On, it is the
+shard's highest installed level (loot.UniqueDropLevel: 90 native, 110 with
+the cap-110 catalog), never below the unique's own level. Port-only, not
+native (owner 2026-10-25): the level-gap exemption admitted the kill, and
+this keeps the reward from being the low-level table's junk.
+================
+*/
+func (rt *Runtime) uniqueDropTableLevel(mob monster.Instance) uint8 {
+	if !rt.UniqueRules.MaxLevelLoot || !RollsUniqueDrops(mob.Rarity()) {
+		return mob.Ref.Level
+	}
+	return max(mob.Ref.Level, loot.UniqueDropLevel())
+}
+
+/*
+================
 rollCombinedMillion
 ================
 */
@@ -492,7 +511,8 @@ prepareEquipmentDropKind
 ================
 */
 func (rt *Runtime) prepareEquipmentDropKind(monster monster.Instance, at simulation.Spawn, droppedBy string, now time.Time, rare bool) (grounditem.Item, bool) {
-	group, selected := rt.selectEquipmentGroup(monster.Ref.Level, rare)
+	level := rt.uniqueDropTableLevel(monster)
+	group, selected := rt.selectEquipmentGroup(level, rare)
 	if !selected {
 		return grounditem.Item{}, false
 	}
@@ -500,7 +520,7 @@ func (rt *Runtime) prepareEquipmentDropKind(monster monster.Instance, at simulat
 	if !ok {
 		return grounditem.Item{}, false
 	}
-	chosen, ok := loot.SelectEquipment(dropCountry, group, rare, monster.Ref.Level, rt.DropRoll)
+	chosen, ok := loot.SelectEquipment(dropCountry, group, rare, level, rt.DropRoll)
 	if !ok {
 		return grounditem.Item{}, false
 	}
