@@ -19,6 +19,7 @@ import (
 
 	"opensro.online/server/internal/game/progression"
 	"opensro.online/server/internal/game/world/monster"
+	"opensro.online/server/internal/game/world/simulation"
 )
 
 /*
@@ -94,5 +95,101 @@ func TestUniquePrepassRollsCapLevelEquipment(t *testing.T) {
 				t.Fatal("unique prepass dropped no equipment")
 			}
 		})
+	}
+}
+
+/*
+================
+TestUniqueSealRewardsAreGuaranteed
+
+A kill whose draws admit every seal leaves exactly one of each, of the top
+degree, no matter how small the ordinary drop cap is: the seals are appended
+after the cap like the ticket. A draw that admits none leaves the Star only.
+================
+*/
+func TestUniqueSealRewardsAreGuaranteed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		roll uint32
+		want map[string]int
+	}{
+		{"every seal", 0, map[string]int{"_09_A_RARE": 1, "_09_B_RARE": 1, "_09_C_RARE": 1}},
+		{"star only", 7, map[string]int{"_09_A_RARE": 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, 20)
+			installLootReferences(t, rt)
+			target.Ref.Codename, target.Ref.MonsterType = "MOB_CH_TIGERWOMAN", 3
+			target.Nest.HasRarityOverride, target.Nest.RarityOverride = true, 3
+			rt.UniqueRules = progression.UniqueRules{MaxLevelLoot: true, SealDrops: true}
+			rt.DropCap = 1
+			rt.DropRoll = constantDropRoll(tc.roll)
+			drops := rt.planMonsterKillLoot(c, target, monster.Pose{
+				RegionID: target.Spawn.RegionID, X: target.Spawn.X, Y: target.Spawn.Y, Z: target.Spawn.Z,
+			}, rt.Now().UnixMilli())
+			got := map[string]int{}
+			for _, drop := range drops {
+				for suffix := range tc.want {
+					if strings.HasSuffix(drop.Codename, suffix) {
+						got[suffix]++
+					}
+				}
+			}
+			for suffix, want := range tc.want {
+				if got[suffix] != want {
+					t.Fatalf("%s drops %d, want %d (all seals %v)", suffix, got[suffix], want, got)
+				}
+			}
+		})
+	}
+}
+
+/*
+================
+TestUniqueSealSwitchOffIsNative
+
+With the seal switch off the kill keeps the native rare roll only: a draw
+that never rolls rare leaves no sealed equipment even with the top-level
+table in force.
+================
+*/
+func TestUniqueSealSwitchOffIsNative(t *testing.T) {
+	rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, 20)
+	installLootReferences(t, rt)
+	target.Ref.Codename, target.Ref.MonsterType = "MOB_CH_TIGERWOMAN", 3
+	target.Nest.HasRarityOverride, target.Nest.RarityOverride = true, 3
+	rt.UniqueRules = progression.UniqueRules{MaxLevelLoot: true}
+	rt.DropRoll = constantDropRoll(7)
+	for _, drop := range rt.planMonsterKillLoot(c, target, monster.Pose{
+		RegionID: target.Spawn.RegionID, X: target.Spawn.X, Y: target.Spawn.Y, Z: target.Spawn.Z,
+	}, rt.Now().UnixMilli()) {
+		if strings.HasSuffix(drop.Codename, "_RARE") {
+			t.Fatalf("seal switch off left %s", drop.Codename)
+		}
+	}
+}
+
+/*
+================
+TestUniqueOrdinaryEquipmentTakesTheTopStrengthTier
+
+A unique's ordinary (non-seal) pick under SRO_UNIQUE_MAX_LEVEL_LOOT comes
+from the level's highest class: degree 9's C tier at the native cap, whose
+required level and stats are the top of the three.
+================
+*/
+func TestUniqueOrdinaryEquipmentTakesTheTopStrengthTier(t *testing.T) {
+	rt, _, _, target := newCombatTestRuntimeAtLevel(t, 1, 20)
+	installLootReferences(t, rt)
+	target.Ref.Codename, target.Ref.MonsterType = "MOB_CH_TIGERWOMAN", 3
+	target.Nest.HasRarityOverride, target.Nest.RarityOverride = true, 3
+	rt.UniqueRules = progression.UniqueRules{MaxLevelLoot: true}
+	rt.DropRoll = constantDropRoll(7)
+	item, ok := rt.prepareEquipmentDropKind(target, simulation.Spawn{}, target.Ref.Codename, rt.Now(), false)
+	if !ok {
+		t.Fatal("ordinary unique equipment pick failed")
+	}
+	if !strings.Contains(item.Codename, "_09_") || !strings.HasSuffix(item.Codename, "_C") {
+		t.Fatalf("ordinary unique pick %s, want the degree-9 C tier", item.Codename)
 	}
 }

@@ -21,14 +21,16 @@ func TestUniqueRulesFromEnvDefaultsOn(t *testing.T) {
 	t.Setenv(EnvUniqueGapExempt, "")
 	t.Setenv(EnvUniquePopTicket, "")
 	t.Setenv(EnvUniqueMaxLevelLoot, "")
-	if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot {
+	t.Setenv(EnvUniqueSealDrops, "")
+	if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot || !rules.SealDrops {
 		t.Fatalf("unset switches = %+v, want all on", rules)
 	}
 	for _, value := range []string{"on", "1", "true", "ON", "anything"} {
 		t.Setenv(EnvUniqueGapExempt, value)
 		t.Setenv(EnvUniquePopTicket, value)
 		t.Setenv(EnvUniqueMaxLevelLoot, value)
-		if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot {
+		t.Setenv(EnvUniqueSealDrops, value)
+		if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot || !rules.SealDrops {
 			t.Fatalf("switches at %q = %+v, want all on", value, rules)
 		}
 	}
@@ -46,18 +48,24 @@ func TestUniqueRulesFromEnvExplicitOffIsNative(t *testing.T) {
 		t.Setenv(EnvUniqueGapExempt, value)
 		t.Setenv(EnvUniquePopTicket, "on")
 		t.Setenv(EnvUniqueMaxLevelLoot, "on")
-		if rules := UniqueRulesFromEnv(); rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot {
+		t.Setenv(EnvUniqueSealDrops, "on")
+		if rules := UniqueRulesFromEnv(); rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot || !rules.SealDrops {
 			t.Fatalf("gap switch at %q = %+v, want gap off and the rest on", value, rules)
 		}
 		t.Setenv(EnvUniqueGapExempt, "on")
 		t.Setenv(EnvUniquePopTicket, value)
-		if rules := UniqueRulesFromEnv(); !rules.GapExempt || rules.PopTicket || !rules.MaxLevelLoot {
+		if rules := UniqueRulesFromEnv(); !rules.GapExempt || rules.PopTicket || !rules.MaxLevelLoot || !rules.SealDrops {
 			t.Fatalf("ticket switch at %q = %+v, want ticket off and the rest on", value, rules)
 		}
 		t.Setenv(EnvUniquePopTicket, "on")
 		t.Setenv(EnvUniqueMaxLevelLoot, value)
-		if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || rules.MaxLevelLoot {
+		if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || rules.MaxLevelLoot || !rules.SealDrops {
 			t.Fatalf("max-level switch at %q = %+v, want max-level off and the rest on", value, rules)
+		}
+		t.Setenv(EnvUniqueMaxLevelLoot, "on")
+		t.Setenv(EnvUniqueSealDrops, value)
+		if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot || rules.SealDrops {
+			t.Fatalf("seal switch at %q = %+v, want seal off and the rest on", value, rules)
 		}
 	}
 }

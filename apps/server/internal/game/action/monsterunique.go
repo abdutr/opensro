@@ -13,6 +13,7 @@ package action
 import (
 	"time"
 
+	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/grounditem"
 	"opensro.online/server/internal/game/item/loot"
 	"opensro.online/server/internal/game/world/monster"
@@ -285,4 +286,105 @@ func (rt *Runtime) prepareUniqueDrops(ctx uniqueDropContext) []grounditem.Item {
 		}
 	}
 	return drops
+}
+
+//============================================================================
+// Guaranteed seals (port-only, not native; owner 2026-10-25)
+//============================================================================
+
+// uniqueSealAttempts bounds the re-draws of one guaranteed seal: a seal
+// bucket's absolute admission or a reference lookup can refuse a pick, but a
+// guaranteed reward must not go missing on an ordinary draw.
+const uniqueSealAttempts = 32
+
+/*
+================
+uniqueSealRewards
+
+The seal tiers one unique kill rewards, in drop order, with the draw each is
+guaranteed on: 0 means every kill. Owner decision 2026-10-25: a Star every
+kill, a Moon one kill in ten, a Sun one kill in thirty, on top of whatever
+the ordinary rare rolls bring.
+================
+*/
+var uniqueSealRewards = []struct {
+	tier  int
+	oneIn uint32
+}{
+	{enterworld.SealStar, 0},
+	{enterworld.SealMoon, 10},
+	{enterworld.SealSun, 30},
+}
+
+/*
+================
+prepareUniqueSeals
+
+One unique kill's guaranteed sealed equipment: the highest degree the drop
+level offers (loot.SealGroupAt; degree 9 at the native cap, degree 11 once
+the cap-110 catalog moves it), one named seal each. The Star leaves every
+kill, the Moon one in ten, the Sun one in thirty. The seal rates and the
+Sun class widening do not thin these: they are the reward, not a rare roll.
+================
+*/
+func (rt *Runtime) prepareUniqueSeals(ctx uniqueDropContext) []grounditem.Item {
+	if !RollsUniqueDrops(ctx.mob.Rarity()) || rt.DropRoll == nil {
+		return nil
+	}
+	country, ok := rt.resolveMonsterDropCountry(ctx.mob.Ref.Country)
+	if !ok {
+		return nil
+	}
+	level := rt.uniqueDropTableLevel(ctx.mob)
+	var drops []grounditem.Item
+	for _, reward := range uniqueSealRewards {
+		if reward.oneIn > 1 {
+			draw, err := rt.DropRoll()
+			if err != nil {
+				return drops
+			}
+			if draw%reward.oneIn != 0 {
+				continue
+			}
+		}
+		group, ok := loot.SealGroupAt(level, reward.tier)
+		if !ok {
+			continue
+		}
+		if item, ok := rt.prepareSealEquipment(country, group, level, ctx); ok {
+			drops = append(drops, item)
+		}
+	}
+	return drops
+}
+
+/*
+================
+prepareSealEquipment
+
+One guaranteed seal pick: the sealed class of the named tier, its native
+equipment plus roll, and the common door (variance, blues, ground item).
+Rare equipment always enters the magic-option constructor (7276A0), so a
+seal carries options; the retry covers the absolute admission and a
+reference the deployment lacks.
+================
+*/
+func (rt *Runtime) prepareSealEquipment(country uint8, group int, level uint8, ctx uniqueDropContext) (grounditem.Item, bool) {
+	for attempt := 0; attempt < uniqueSealAttempts; attempt++ {
+		chosen, ok := loot.SelectEquipment(country, group, true, level, rt.DropRoll)
+		if !ok {
+			continue
+		}
+		plus, ok := rt.rollDroppedEquipmentPlus()
+		if !ok {
+			return grounditem.Item{}, false
+		}
+		item, ok := rt.prepareSelectedDrop(loot.DropItem{
+			Codename: chosen.Codename, Count: 1, Plus: plus, FromUnique: true,
+		}, ctx.at, ctx.owner, ctx.now)
+		if ok {
+			return item, true
+		}
+	}
+	return grounditem.Item{}, false
 }

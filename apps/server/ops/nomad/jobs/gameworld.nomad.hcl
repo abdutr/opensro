@@ -826,6 +826,15 @@ variable "unique_max_level_loot" {
   default = "on"
 }
 
+# unique_seal_drops guarantees one Seal of Star of the top degree per
+# unique kill, a Seal of Moon on a kill in ten and a Seal of Sun on a kill
+# in thirty (port-only, not native; owner decision 2026-10-25). "off" is
+# native.
+variable "unique_seal_drops" {
+  type    = string
+  default = "on"
+}
+
 # beta_unique_respawn draws respawning unique monster nests over 45-90 minutes
 # instead of the operator backup's 20-36 minute rows (port-only, not native;
 # owner decision 2026-10-18). "off" keeps the authored row.
@@ -1082,6 +1091,7 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_UNIQUE_GAP_EXEMPT                   = var.unique_gap_exempt
         SRO_UNIQUE_POP_TICKET                   = var.unique_pop_ticket
         SRO_UNIQUE_MAX_LEVEL_LOOT               = var.unique_max_level_loot
+        SRO_UNIQUE_SEAL_DROPS                   = var.unique_seal_drops
         SRO_BETA_UNIQUE_RESPAWN                 = var.beta_unique_respawn
         SRO_BETA_DROP_CAP                       = var.beta_drop_cap
         SRO_BETA_DROP_MIX                       = var.beta_drop_mix
