@@ -828,19 +828,19 @@ variable "unique_pop_ticket" {
 # unique_max_level_loot rolls a unique's equipment at the shard's highest
 # installed level (degree 9 at cap 90, degree 11 at cap 110) rather than
 # the unique's own level (port-only, not native; owner decision
-# 2026-10-25). "off" is native.
+# 2026-10-25). Opt-in: "off" is native.
 variable "unique_max_level_loot" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # unique_seal_drops guarantees one Seal of Star of the top degree per
 # unique kill, a Seal of Moon on a kill in ten and a Seal of Sun on a kill
 # in thirty (port-only, not native; owner decision 2026-10-25). "off" is
-# native.
+# native and is the default.
 variable "unique_seal_drops" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # beta_unique_respawn draws respawning unique monster nests over 45-90 minutes

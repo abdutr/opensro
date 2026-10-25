@@ -365,14 +365,25 @@ prepareSealEquipment
 One guaranteed seal pick: the sealed class of the named tier, its native
 equipment plus roll, and the common door (variance, blues, ground item).
 Rare equipment always enters the magic-option constructor (7276A0), so a
-seal carries options; the retry covers the absolute admission and a
-reference the deployment lacks.
+seal carries options; the retry covers absolute admission, an unavailable
+reference and a mixed bucket's item of another seal tier. The native Moon
+bucket includes Star body armour: only this port-only reward rejects it;
+ordinary native equipment selection keeps the original mixed assignment.
 ================
 */
 func (rt *Runtime) prepareSealEquipment(country uint8, group int, level uint8, ctx uniqueDropContext) (grounditem.Item, bool) {
+	items := rt.deps.ItemReferences()
+	if items == nil {
+		return grounditem.Item{}, false
+	}
 	for attempt := 0; attempt < uniqueSealAttempts; attempt++ {
 		chosen, ok := loot.SelectEquipment(country, group, true, level, rt.DropRoll)
 		if !ok {
+			continue
+		}
+		ref, found := items.ItemRefByCodename(chosen.Codename)
+		seal, sealed := enterworld.EquipmentSeal(ref)
+		if !found || !sealed || seal != group%enterworld.SealTiers {
 			continue
 		}
 		plus, ok := rt.rollDroppedEquipmentPlus()

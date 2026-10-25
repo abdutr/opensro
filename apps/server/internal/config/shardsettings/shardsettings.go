@@ -248,11 +248,11 @@ var Settings = []Setting{
 	{Env: "SRO_UNIQUE_POP_TICKET", NomadVar: "unique_pop_ticket", Default: "on", Catalogue: true},
 	// Owner, 2026-10-25: a unique's equipment rolls at the shard's highest
 	// installed level (degree 9 at cap 90, degree 11 at cap 110) rather than
-	// the unique's own level; "off" is the native table.
-	{Env: "SRO_UNIQUE_MAX_LEVEL_LOOT", NomadVar: "unique_max_level_loot", Default: "on", Catalogue: true},
+	// the unique's own level. Opt-in: "off" is the native table.
+	{Env: "SRO_UNIQUE_MAX_LEVEL_LOOT", NomadVar: "unique_max_level_loot", Default: "off", Catalogue: true},
 	// Owner, 2026-10-25: every unique kill leaves one Seal of Star of the
-	// top degree, Moon one in ten, Sun one in thirty; "off" is native.
-	{Env: "SRO_UNIQUE_SEAL_DROPS", NomadVar: "unique_seal_drops", Default: "on", Catalogue: true},
+	// top degree, Moon one in ten, Sun one in thirty. Opt-in: "off" is native.
+	{Env: "SRO_UNIQUE_SEAL_DROPS", NomadVar: "unique_seal_drops", Default: "off", Catalogue: true},
 	// Owner, 2026-10-18: respawning unique nests draw over 45-90 minutes
 	// instead of the operator backup's 20-36 minute rows. "off" keeps the
 	// authored row.

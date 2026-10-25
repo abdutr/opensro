@@ -1,10 +1,10 @@
 /*
 ===========================================================================
 
-uniquerules_test.go - the default-on unique reward switches
+uniquerules_test.go - native fallbacks and opt-in unique reward switches
 
-All three switches ship ON (owner, 2026-10-20 and 2026-10-25) and only an
-explicit off value restores the native rule, one switch at a time.
+The approved gap/ticket rules retain their default ON. The new equipment
+level and seal rules need an explicit opt-in, and every rule can be disabled.
 
 ===========================================================================
 */
@@ -14,18 +14,18 @@ import "testing"
 
 /*
 ================
-TestUniqueRulesFromEnvDefaultsOn
+TestUniqueRulesFromEnvDefaults
 ================
 */
-func TestUniqueRulesFromEnvDefaultsOn(t *testing.T) {
+func TestUniqueRulesFromEnvDefaults(t *testing.T) {
 	t.Setenv(EnvUniqueGapExempt, "")
 	t.Setenv(EnvUniquePopTicket, "")
 	t.Setenv(EnvUniqueMaxLevelLoot, "")
 	t.Setenv(EnvUniqueSealDrops, "")
-	if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || !rules.MaxLevelLoot || !rules.SealDrops {
-		t.Fatalf("unset switches = %+v, want all on", rules)
+	if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || rules.MaxLevelLoot || rules.SealDrops {
+		t.Fatalf("unset switches = %+v, want old rules on and new rules off", rules)
 	}
-	for _, value := range []string{"on", "1", "true", "ON", "anything"} {
+	for _, value := range []string{"on", "1", "true", "ON", " True "} {
 		t.Setenv(EnvUniqueGapExempt, value)
 		t.Setenv(EnvUniquePopTicket, value)
 		t.Setenv(EnvUniqueMaxLevelLoot, value)
@@ -38,9 +38,26 @@ func TestUniqueRulesFromEnvDefaultsOn(t *testing.T) {
 
 /*
 ================
+TestNewUniqueRulesRequireExplicitOptIn
+================
+*/
+func TestNewUniqueRulesRequireExplicitOptIn(t *testing.T) {
+	for _, value := range []string{"", "off", "0", "false", "anything"} {
+		t.Setenv(EnvUniqueGapExempt, "anything")
+		t.Setenv(EnvUniquePopTicket, "anything")
+		t.Setenv(EnvUniqueMaxLevelLoot, value)
+		t.Setenv(EnvUniqueSealDrops, value)
+		if rules := UniqueRulesFromEnv(); !rules.GapExempt || !rules.PopTicket || rules.MaxLevelLoot || rules.SealDrops {
+			t.Fatalf("new rules at %q = %+v, want old defaults on and new rules off", value, rules)
+		}
+	}
+}
+
+/*
+================
 TestUniqueRulesFromEnvExplicitOffIsNative
 
-Each switch turns off alone: the other two stay on.
+Each switch turns off alone: the other three stay on when explicitly enabled.
 ================
 */
 func TestUniqueRulesFromEnvExplicitOffIsNative(t *testing.T) {
