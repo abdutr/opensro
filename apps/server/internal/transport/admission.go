@@ -71,6 +71,19 @@ func (h *Hub) helloAuthFn() HelloAuthFunc {
 
 /*
 ================
+helloVerifierInstalled
+
+Either form counts as installed: the single-phase verifier and the
+two-phase one that consumes the ticket at WELCOME are alternatives, and a
+deployment installs exactly one. Start refuses only when neither exists.
+================
+*/
+func (h *Hub) helloVerifierInstalled() bool {
+	return h.admission.current() != nil || h.admission.commitCurrent() != nil
+}
+
+/*
+================
 verifyHelloAdmission
 
 Runs the installed HELLO verification. The two-phase form wins when

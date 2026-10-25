@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -68,6 +69,36 @@ func TestServerRefusesStartupWithoutHelloAdmissionVerifier(t *testing.T) {
 	if err := server.Start(); err == nil || !strings.Contains(err.Error(), "admission verifier") {
 		t.Fatalf("Start error = %v, want missing HELLO admission verifier", err)
 	}
+}
+
+/*
+================
+TestServerAcceptsTwoPhaseHelloAdmissionVerifier
+
+A deployment that installs the two-phase verifier (authentication at
+HELLO, ticket consumed at WELCOME) has an admission verifier: Start must
+not refuse it. The single-phase test above still covers a hub with none.
+================
+*/
+func TestServerAcceptsTwoPhaseHelloAdmissionVerifier(t *testing.T) {
+	server, err := NewServer(Config{
+		WTAddr:  "127.0.0.1:0",
+		WSAddr:  "127.0.0.1:0",
+		CertDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Hub.SetHelloCommitAuth(func([]byte) (AdmissionIdentity, func() error, error) {
+		return AdmissionIdentity{AccountID: "test-account", ShardID: "global-official"}, func() error { return nil }, nil
+	})
+	server.Hub.SetEnterWorldAuth(func(*Session, EnterWorld) (bool, uint32) { return true, 0 })
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start with the two-phase HELLO verifier = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	server.Shutdown(ctx)
 }
 
 func TestServerRefusesStartupWithoutEnterWorldAuthVerifier(t *testing.T) {
