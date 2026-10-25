@@ -381,6 +381,26 @@ func (rt *Runtime) prepareEquipmentDrop(
 	return grounditem.Item{}, false
 }
 
+/*
+================
+equipmentGroup
+
+The class an equipment pick rolls from. Native, and for every ordinary
+monster, the level row's own weighted class (selectEquipmentGroup). A
+unique under SRO_UNIQUE_MAX_LEVEL_LOOT draws its ordinary (non-seal)
+equipment from the level's highest class instead, because the strength
+tiers of one degree differ by required level and a unique reward should be
+the top one; the seal tiers are picked by prepareUniqueSeals, so a rare
+pick keeps the row's own class distribution.
+================
+*/
+func (rt *Runtime) equipmentGroup(monster monster.Instance, level uint8, rare bool) (int, bool) {
+	if !rare && rt.UniqueRules.MaxLevelLoot && RollsUniqueDrops(monster.Rarity()) {
+		return loot.SpecialEquipmentGroup(level)
+	}
+	return rt.selectEquipmentGroup(level, rare)
+}
+
 // rareEquipmentDomain is the native rare roll's modulus: rand() % 1000 == 1.
 const rareEquipmentDomain = 1000
 
@@ -512,7 +532,7 @@ prepareEquipmentDropKind
 */
 func (rt *Runtime) prepareEquipmentDropKind(monster monster.Instance, at simulation.Spawn, droppedBy string, now time.Time, rare bool) (grounditem.Item, bool) {
 	level := rt.uniqueDropTableLevel(monster)
-	group, selected := rt.selectEquipmentGroup(level, rare)
+	group, selected := rt.equipmentGroup(monster, level, rare)
 	if !selected {
 		return grounditem.Item{}, false
 	}
@@ -693,6 +713,17 @@ func (rt *Runtime) planMonsterKillLoot(
 			ticket.OwnerJID = ownerJID
 			ticket = rt.scatterMonsterDrop(ticket, at, monster.Rarity())
 			admitted = append(kept, ticket)
+		}
+	}
+	// Port-only, not native (owner 2026-10-25): SRO_UNIQUE_SEAL_DROPS is the
+	// unique kill's guarantee — one Seal of Star every kill, Moon one in ten,
+	// Sun one in thirty, at the highest degree the drop level offers. Appended
+	// after admission and the drop cap like the ticket, so neither can take
+	// it; the ordinary rare rolls may still add seals on top.
+	if rt.UniqueRules.SealDrops {
+		for _, seal := range rt.prepareUniqueSeals(uniqueDropContext{mob: monster, at: at, owner: snapshot.Name, now: now}) {
+			seal.OwnerJID = ownerJID
+			admitted = append(admitted, rt.scatterMonsterDrop(seal, at, monster.Rarity()))
 		}
 	}
 	return admitted

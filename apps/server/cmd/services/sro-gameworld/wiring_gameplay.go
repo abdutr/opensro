@@ -202,14 +202,15 @@ func newGameplayPlane(
 		log.Infof("loot: degree-9 Seal of Sun gear neither drops nor is sold (%s)", progression.EnvSunEventOnly)
 	}
 	// SRO_UNIQUE_GAP_EXEMPT / SRO_UNIQUE_POP_TICKET / SRO_UNIQUE_MAX_LEVEL_LOOT
-	// (port-only, not native): uniques ignore the level-gap admission, one
-	// Magic Pop ticket per kill, and their equipment rolls at the shard's
-	// highest installed level.
+	// / SRO_UNIQUE_SEAL_DROPS (port-only, not native): uniques ignore the
+	// level-gap admission, one Magic Pop ticket per kill, their equipment
+	// rolls at the shard's highest installed level, and each kill guarantees
+	// its seal reward.
 	items.UniqueRules = progression.UniqueRulesFromEnv()
-	if items.UniqueRules.GapExempt || items.UniqueRules.PopTicket || items.UniqueRules.MaxLevelLoot {
-		log.Infof("loot: unique rewards (port-only): gap exemption %t, pop ticket %t, max-level loot %t (%s, %s, %s)",
-			items.UniqueRules.GapExempt, items.UniqueRules.PopTicket, items.UniqueRules.MaxLevelLoot,
-			progression.EnvUniqueGapExempt, progression.EnvUniquePopTicket, progression.EnvUniqueMaxLevelLoot)
+	if items.UniqueRules.GapExempt || items.UniqueRules.PopTicket || items.UniqueRules.MaxLevelLoot || items.UniqueRules.SealDrops {
+		log.Infof("loot: unique rewards (port-only): gap exemption %t, pop ticket %t, max-level loot %t, seal drops %t (%s, %s, %s, %s)",
+			items.UniqueRules.GapExempt, items.UniqueRules.PopTicket, items.UniqueRules.MaxLevelLoot, items.UniqueRules.SealDrops,
+			progression.EnvUniqueGapExempt, progression.EnvUniquePopTicket, progression.EnvUniqueMaxLevelLoot, progression.EnvUniqueSealDrops)
 	}
 	// SRO_TRADE_TIERS (port-only, not native) prices the shops' trade goods
 	// as ConfigureCommerce loads them, so it is set first.

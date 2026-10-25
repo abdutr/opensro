@@ -9,7 +9,7 @@ hunting patch). Native CGObjMob_RollDropAdmission (SR_GameServer
 monster's: past six levels above the monster the threshold falls by four
 percent per level, so a level-90 hunter loots nothing from Tiger Girl
 (level 20, threshold -180) and only same-level uniques such as Demon
-Shaitan ever paid out. Three switches change that, all default ON:
+Shaitan ever paid out. Four switches change that, all default ON:
 
   - SRO_UNIQUE_GAP_EXEMPT: a unique's drops (spawn grade 3 or 8, the
     RollsUniqueDrops grades) bypass the 4C1840 threshold entirely.
@@ -23,10 +23,15 @@ Shaitan ever paid out. Three switches change that, all default ON:
     shard's highest installed level (item/loot.UniqueDropLevel: 90
     native, 110 with the cap-110 catalog) instead of the unique's own
     level, so Tiger Girl drops degree-9 gear at the native cap and
-    degree-11 gear once the cap moves to 110.
+    degree-11 gear once the cap moves to 110. Its ordinary (non-seal)
+    picks also take the level's highest strength tier.
+  - SRO_UNIQUE_SEAL_DROPS: every unique kill leaves one Seal of Star of
+    the highest degree the drop level offers, one Seal of Moon on a kill
+    in ten and one Seal of Sun on a kill in thirty. Appended after
+    admission and the drop cap, so neither can take a guaranteed seal.
 
 Any switch at "off" restores the exact native rule for its half; all
-three off is byte-native. The zero value of UniqueRules is native, so a
+four off is byte-native. The zero value of UniqueRules is native, so a
 Runtime that never wires the env behaves as the original server.
 
 ===========================================================================
@@ -47,6 +52,9 @@ const EnvUniquePopTicket = "SRO_UNIQUE_POP_TICKET"
 // EnvUniqueMaxLevelLoot rolls unique equipment at the shard's highest level.
 const EnvUniqueMaxLevelLoot = "SRO_UNIQUE_MAX_LEVEL_LOOT"
 
+// EnvUniqueSealDrops guarantees the seal reward of every unique kill.
+const EnvUniqueSealDrops = "SRO_UNIQUE_SEAL_DROPS"
+
 /*
 ================
 UniqueRules
@@ -62,6 +70,9 @@ type UniqueRules struct {
 	// highest installed level instead of the unique's own level
 	// (action/uniqueDropTableLevel). Off is the native table.
 	MaxLevelLoot bool
+	// SealDrops guarantees one Seal of Star per unique kill plus the
+	// Moon and Sun draws (action/prepareUniqueSeals). Off is native.
+	SealDrops bool
 }
 
 /*
@@ -77,6 +88,7 @@ func UniqueRulesFromEnv() UniqueRules {
 		GapExempt:    uniqueRuleOn(os.Getenv(EnvUniqueGapExempt)),
 		PopTicket:    uniqueRuleOn(os.Getenv(EnvUniquePopTicket)),
 		MaxLevelLoot: uniqueRuleOn(os.Getenv(EnvUniqueMaxLevelLoot)),
+		SealDrops:    uniqueRuleOn(os.Getenv(EnvUniqueSealDrops)),
 	}
 }
 
