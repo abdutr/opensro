@@ -114,7 +114,7 @@ func TestUniqueSealRewardsAreGuaranteed(t *testing.T) {
 		want map[string]int
 	}{
 		{"every seal", 0, map[string]int{"_09_A_RARE": 1, "_09_B_RARE": 1, "_09_C_RARE": 1}},
-		{"star only", 7, map[string]int{"_09_A_RARE": 1}},
+		{"star only", 7, map[string]int{"_09_A_RARE": 1, "_09_B_RARE": 0, "_09_C_RARE": 0}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, 20)
