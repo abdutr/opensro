@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"opensro.online/server/internal/game/enterworld"
+	"opensro.online/server/internal/game/item/loot"
 	"opensro.online/server/internal/game/progression"
 	"opensro.online/server/internal/game/world/monster"
 	"opensro.online/server/internal/testsupport/gamedatatest"
@@ -38,8 +39,10 @@ const (
 uniqueLootMeasurement
 
 Counts actual ground-item plans, not notices. Per-tier counts include any
-extra seals from ordinary rare rolls. Batch histograms show how many Sun
-items a group of 100 kills generated before any announcement suppression.
+extra seals from ordinary rare rolls; under the ratified shapes every Sun
+comes from those ordinary rolls, as no Sun is guaranteed. Batch histograms
+show how many Sun items a group of 100 kills generated before any
+announcement suppression.
 ================
 */
 type uniqueLootMeasurement struct {
@@ -105,6 +108,17 @@ func TestUniqueLootDistributionProbe(t *testing.T) {
 			if err := rt.ValidateLootReferences(); err != nil {
 				t.Fatal(err)
 			}
+			// No seal of this unique, guaranteed or ordinary, may pass the
+			// degree its drop-table level offers: the top degree for a
+			// top-band unique, its own degree below the band. The
+			// guaranteed Star carries that degree; ordinary rare rolls may
+			// land below it, as their native class rows do.
+			tableLevel := rt.uniqueDropTableLevel(target)
+			starGroup, ok := loot.SealGroupAt(tableLevel, enterworld.SealStar)
+			if !ok {
+				t.Fatalf("%s has no seal group at drop-table level %d", code, tableLevel)
+			}
+			wantDegree := starGroup/3 + 1
 			seed := uint64(target.Ref.RefObjID)
 			source := rand.New(rand.NewPCG(uniqueProbeSeed, seed))
 			rt.DropRoll = func() (uint32, error) { return source.Uint32N(dropRollDomain), nil }
@@ -133,8 +147,8 @@ func TestUniqueLootDistributionProbe(t *testing.T) {
 					seals[seal]++
 					degree := enterworld.EquipmentDegree(ref)
 					result.SealDegrees[degree]++
-					if degree != 9 {
-						t.Fatalf("cap-90 kill generated degree-%d seal %s", degree, drop.Codename)
+					if degree > wantDegree {
+						t.Fatalf("kill generated degree-%d seal %s, above the degree-%d top of drop-table level %d", degree, drop.Codename, wantDegree, tableLevel)
 					}
 				}
 				for seal, count := range seals {
@@ -152,8 +166,8 @@ func TestUniqueLootDistributionProbe(t *testing.T) {
 					batchSun = 0
 				}
 			}
-			if result.Seals[enterworld.SealMoon] == 0 || result.Seals[enterworld.SealSun] == 0 {
-				t.Fatal("Moon or Sun rewards never generated")
+			if result.Seals[enterworld.SealMoon] == 0 {
+				t.Fatal("Moon rewards never generated")
 			}
 			results = append(results, result)
 			t.Logf("kills=%d Star/Moon/Sun=%v kills-with-seal=%v degrees=%v normal-classes=%v items/kill=%.3f Sun-per-100=%v",

@@ -302,9 +302,10 @@ const uniqueSealAttempts = 32
 uniqueSealRewards
 
 The seal tiers one unique kill rewards, in drop order, with the draw each is
-guaranteed on: 0 means every kill. Owner decision 2026-10-25: a Star every
-kill, a Moon one kill in ten, a Sun one kill in thirty, on top of whatever
-the ordinary rare rolls bring.
+guaranteed on: 0 means every kill. Owner decision 2026-10-26 (the round-1
+shape, held through round 2): a Star every kill and a Moon one kill in ten,
+on top of whatever the ordinary rare rolls bring. There is no guaranteed
+Sun: it stays on the ordinary rare roll for uniques as for everyone else.
 ================
 */
 var uniqueSealRewards = []struct {
@@ -313,7 +314,6 @@ var uniqueSealRewards = []struct {
 }{
 	{enterworld.SealStar, 0},
 	{enterworld.SealMoon, 10},
-	{enterworld.SealSun, 30},
 }
 
 /*
@@ -323,7 +323,7 @@ prepareUniqueSeals
 One unique kill's guaranteed sealed equipment: the highest degree the drop
 level offers (loot.SealGroupAt; degree 9 at the native cap, degree 11 once
 the cap-110 catalog moves it), one named seal each. The Star leaves every
-kill, the Moon one in ten, the Sun one in thirty. The seal rates and the
+kill, the Moon one in ten; no Sun is guaranteed. The seal rates and the
 Sun class widening do not thin these: they are the reward, not a rare roll.
 ================
 */

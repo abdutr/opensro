@@ -1,13 +1,15 @@
 /*
 ===========================================================================
 
-monsterunique_level_test.go - unique equipment rolls at the shard's top level
+monsterunique_level_test.go - a top-band unique rolls at the top level
 
-Port-only, not native (owner 2026-10-25): SRO_UNIQUE_MAX_LEVEL_LOOT rolls a
-unique's equipment tables at the highest installed level instead of the
-unique's own level, so Tiger Girl (level 20) leaves degree-9 gear at the
-native cap and the same rule yields degree-11 gear once the cap-110 catalog
-moves the top. Off is the native unique-level table.
+Port-only, not native (owner 2026-10-25, narrowed 2026-10-26):
+SRO_UNIQUE_MAX_LEVEL_LOOT rolls a unique's equipment tables at the highest
+installed level only while the unique's own level is in the catalog's top
+loot band (within ten of the top), so a top-band unique leaves degree-9
+gear at the native cap and degree-11 gear once the cap-110 catalog moves
+the top. Tiger Girl (level 20) keeps her own degree-3 table, and off is
+the native unique-level table for every unique.
 
 ===========================================================================
 */
@@ -26,13 +28,18 @@ import (
 ================
 TestUniqueDropTableLevel
 
-The rule's arithmetic: a unique rolls at the top level, an ordinary monster
-keeps its own, a unique above the top keeps its own, and off is native.
+The rule's arithmetic: a unique in the top loot band (own level within ten
+of the installed top, 90 here) rolls at the top level, a unique below the
+band keeps its own, an ordinary monster keeps its own, a unique above the
+top keeps its own, and off is native.
 ================
 */
 func TestUniqueDropTableLevel(t *testing.T) {
 	unique := monster.Instance{Ref: monster.MonsterRef{Level: 20, MonsterType: 3}}
-	ordinary := monster.Instance{Ref: monster.MonsterRef{Level: 20, MonsterType: 0}}
+	band := monster.Instance{Ref: monster.MonsterRef{Level: 85, MonsterType: 3}}
+	floor := monster.Instance{Ref: monster.MonsterRef{Level: 80, MonsterType: 3}}
+	below := monster.Instance{Ref: monster.MonsterRef{Level: 79, MonsterType: 3}}
+	ordinary := monster.Instance{Ref: monster.MonsterRef{Level: 85, MonsterType: 0}}
 	above := monster.Instance{Ref: monster.MonsterRef{Level: 94, MonsterType: 3}}
 	for _, tc := range []struct {
 		name  string
@@ -40,10 +47,13 @@ func TestUniqueDropTableLevel(t *testing.T) {
 		mob   monster.Instance
 		want  uint8
 	}{
-		{"unique at the cap", progression.UniqueRules{MaxLevelLoot: true}, unique, 90},
-		{"ordinary at the cap", progression.UniqueRules{MaxLevelLoot: true}, ordinary, 20},
+		{"top-band unique at the cap", progression.UniqueRules{MaxLevelLoot: true}, band, 90},
+		{"band floor at the cap", progression.UniqueRules{MaxLevelLoot: true}, floor, 90},
+		{"below the band keeps its own", progression.UniqueRules{MaxLevelLoot: true}, below, 79},
+		{"low unique keeps its own", progression.UniqueRules{MaxLevelLoot: true}, unique, 20},
+		{"ordinary in the band keeps its own", progression.UniqueRules{MaxLevelLoot: true}, ordinary, 85},
 		{"unique above the cap", progression.UniqueRules{MaxLevelLoot: true}, above, 94},
-		{"unique native table", progression.UniqueRules{}, unique, 20},
+		{"top-band unique native table", progression.UniqueRules{}, band, 85},
 	} {
 		rt := Runtime{UniqueRules: tc.rules}
 		if got := rt.uniqueDropTableLevel(tc.mob); got != tc.want {
@@ -56,22 +66,25 @@ func TestUniqueDropTableLevel(t *testing.T) {
 ================
 TestUniquePrepassRollsCapLevelEquipment
 
-A level-20 unique's prepass leaves degree-9 equipment while the rule is on
-and its native degree-3 equipment off. The item is still the special
-constructor's: +1..5, magic options, non-repairable.
+A top-band unique's prepass leaves degree-9 equipment while the rule is
+on; a level-20 unique below the band leaves its native degree-3 equipment
+with the rule on or off. The item is still the special constructor's:
++1..5, magic options, non-repairable.
 ================
 */
 func TestUniquePrepassRollsCapLevelEquipment(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
+		level uint8
 		rules progression.UniqueRules
 		want  string
 	}{
-		{"cap level", progression.UniqueRules{MaxLevelLoot: true}, "_09_"},
-		{"native", progression.UniqueRules{}, "_03_"},
+		{"cap level", 85, progression.UniqueRules{MaxLevelLoot: true}, "_09_"},
+		{"below the band", 20, progression.UniqueRules{MaxLevelLoot: true}, "_03_"},
+		{"native", 20, progression.UniqueRules{}, "_03_"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, 20)
+			rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, tc.level)
 			installLootReferences(t, rt)
 			target.Ref.Codename, target.Ref.MonsterType = "MOB_CH_TIGERWOMAN", 3
 			target.Nest.HasRarityOverride, target.Nest.RarityOverride = true, 3
@@ -102,9 +115,10 @@ func TestUniquePrepassRollsCapLevelEquipment(t *testing.T) {
 ================
 TestUniqueSealRewardsAreGuaranteed
 
-A kill whose draws admit every seal leaves exactly one of each, of the top
-degree, no matter how small the ordinary drop cap is: the seals are appended
-after the cap like the ticket. A draw that admits none leaves the Star only.
+A kill whose draws admit the Moon leaves exactly one Star and one Moon, of
+the top degree, no matter how small the ordinary drop cap is: the seals are
+appended after the cap like the ticket. No Sun is ever guaranteed, and a
+draw that admits no Moon leaves the Star only.
 ================
 */
 func TestUniqueSealRewardsAreGuaranteed(t *testing.T) {
@@ -113,11 +127,11 @@ func TestUniqueSealRewardsAreGuaranteed(t *testing.T) {
 		roll uint32
 		want map[string]int
 	}{
-		{"every seal", 0, map[string]int{"_09_A_RARE": 1, "_09_B_RARE": 1, "_09_C_RARE": 1}},
+		{"star and moon", 0, map[string]int{"_09_A_RARE": 1, "_09_B_RARE": 1, "_09_C_RARE": 0}},
 		{"star only", 7, map[string]int{"_09_A_RARE": 1, "_09_B_RARE": 0, "_09_C_RARE": 0}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, 20)
+			rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, 85)
 			installLootReferences(t, rt)
 			target.Ref.Codename, target.Ref.MonsterType = "MOB_CH_TIGERWOMAN", 3
 			target.Nest.HasRarityOverride, target.Nest.RarityOverride = true, 3
@@ -141,6 +155,40 @@ func TestUniqueSealRewardsAreGuaranteed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+/*
+================
+TestUniqueSealRewardsBelowTheBandKeepTheOwnDegree
+
+Below the band the guarantee keeps the unique's own degree: a level-20
+unique with both rules on leaves a degree-3 Star and Moon, never the top
+degree's seals.
+================
+*/
+func TestUniqueSealRewardsBelowTheBandKeepTheOwnDegree(t *testing.T) {
+	rt, _, c, target := newCombatTestRuntimeAtLevel(t, 1, 20)
+	installLootReferences(t, rt)
+	target.Ref.Codename, target.Ref.MonsterType = "MOB_CH_TIGERWOMAN", 3
+	target.Nest.HasRarityOverride, target.Nest.RarityOverride = true, 3
+	rt.UniqueRules = progression.UniqueRules{MaxLevelLoot: true, SealDrops: true}
+	rt.DropRoll = constantDropRoll(0)
+	got := map[string]int{}
+	for _, drop := range rt.planMonsterKillLoot(c, target, monster.Pose{
+		RegionID: target.Spawn.RegionID, X: target.Spawn.X, Y: target.Spawn.Y, Z: target.Spawn.Z,
+	}, rt.Now().UnixMilli()) {
+		for _, suffix := range []string{"_03_A_RARE", "_03_B_RARE", "_09_A_RARE", "_09_B_RARE"} {
+			if strings.HasSuffix(drop.Codename, suffix) {
+				got[suffix]++
+			}
+		}
+	}
+	want := map[string]int{"_03_A_RARE": 1, "_03_B_RARE": 1, "_09_A_RARE": 0, "_09_B_RARE": 0}
+	for suffix, count := range want {
+		if got[suffix] != count {
+			t.Fatalf("%s drops %d, want %d (all seals %v)", suffix, got[suffix], count, got)
+		}
 	}
 }
 
@@ -173,13 +221,14 @@ func TestUniqueSealSwitchOffIsNative(t *testing.T) {
 ================
 TestUniqueOrdinaryEquipmentTakesTheTopStrengthTier
 
-A unique's ordinary (non-seal) pick under SRO_UNIQUE_MAX_LEVEL_LOOT comes
-from the level's highest class: degree 9's C tier at the native cap, whose
-required level and stats are the top of the three.
+A top-band unique's ordinary (non-seal) pick under
+SRO_UNIQUE_MAX_LEVEL_LOOT comes from the level's highest class: degree 9's
+C tier at the native cap, whose required level and stats are the top of
+the three.
 ================
 */
 func TestUniqueOrdinaryEquipmentTakesTheTopStrengthTier(t *testing.T) {
-	rt, _, _, target := newCombatTestRuntimeAtLevel(t, 1, 20)
+	rt, _, _, target := newCombatTestRuntimeAtLevel(t, 1, 85)
 	installLootReferences(t, rt)
 	target.Ref.Codename, target.Ref.MonsterType = "MOB_CH_TIGERWOMAN", 3
 	target.Nest.HasRarityOverride, target.Nest.RarityOverride = true, 3

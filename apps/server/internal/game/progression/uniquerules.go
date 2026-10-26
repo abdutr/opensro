@@ -20,17 +20,19 @@ ticket rules default ON; the new equipment-level and seal rules are opt-in:
     two for the Bone Lord and the Roc), so the rule retires every
     admitted native card and appends one guaranteed card instead: never
     zero, never two.
-  - SRO_UNIQUE_MAX_LEVEL_LOOT: a unique's equipment tables roll at the
-    shard's highest installed level (item/loot.UniqueDropLevel: 90
-    native, 110 with the cap-110 catalog) instead of the unique's own
-    level, so Tiger Girl drops degree-9 gear at the native cap and
-    degree-11 gear once the cap moves to 110. Its ordinary (non-seal)
-    picks also take the level's highest strength tier. Default OFF.
+  - SRO_UNIQUE_MAX_LEVEL_LOOT: a unique in the installed catalog's top
+    loot band (own level within ten of the highest installed level,
+    item/loot.UniqueDropLevel: 90 native, 110 with the cap-110 catalog)
+    rolls its equipment tables at that level instead of its own, so a
+    top-band unique drops degree-9 gear at the native cap and degree-11
+    gear once the cap moves to 110. Its ordinary (non-seal) picks also
+    take the level's highest strength tier. Every other unique keeps its
+    own level's table, as native. Default OFF.
   - SRO_UNIQUE_SEAL_DROPS: every unique kill leaves one Seal of Star of
-    the highest degree the drop level offers, one Seal of Moon on a kill
-    in ten and one Seal of Sun on a kill in thirty. Appended after
-    admission and the drop cap, so neither can take a guaranteed seal.
-    Default OFF.
+    the highest degree the drop level offers and one Seal of Moon on a
+    kill in ten. There is no guaranteed Sun: it stays on the ordinary
+    rare roll. Appended after admission and the drop cap, so neither can
+    take a guaranteed seal. Default OFF.
 
 Any switch at "off" restores the exact native rule for its half; all
 four off is byte-native. The zero value of UniqueRules is native, so a
@@ -67,12 +69,12 @@ The unique-reward switches. The zero value is native (all off).
 type UniqueRules struct {
 	GapExempt bool
 	PopTicket bool
-	// MaxLevelLoot rolls a unique's equipment tables at the shard's
-	// highest installed level instead of the unique's own level
+	// MaxLevelLoot rolls a top-band unique's equipment tables at the
+	// shard's highest installed level instead of the unique's own level
 	// (action/uniqueDropTableLevel). Off is the native table.
 	MaxLevelLoot bool
 	// SealDrops guarantees one Seal of Star per unique kill plus the
-	// Moon and Sun draws (action/prepareUniqueSeals). Off is native.
+	// Moon draw (action/prepareUniqueSeals). Off is native.
 	SealDrops bool
 }
 

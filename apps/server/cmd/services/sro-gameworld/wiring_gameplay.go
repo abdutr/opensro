@@ -203,9 +203,9 @@ func newGameplayPlane(
 	}
 	// SRO_UNIQUE_GAP_EXEMPT / SRO_UNIQUE_POP_TICKET / SRO_UNIQUE_MAX_LEVEL_LOOT
 	// / SRO_UNIQUE_SEAL_DROPS (port-only, not native): uniques ignore the
-	// level-gap admission, one Magic Pop ticket per kill, their equipment
-	// rolls at the shard's highest installed level, and each kill guarantees
-	// its seal reward.
+	// level-gap admission, one Magic Pop ticket per kill, a top-band unique's
+	// equipment rolls at the shard's highest installed level, and each kill
+	// guarantees its seal reward.
 	items.UniqueRules = progression.UniqueRulesFromEnv()
 	if items.UniqueRules.GapExempt || items.UniqueRules.PopTicket || items.UniqueRules.MaxLevelLoot || items.UniqueRules.SealDrops {
 		log.Infof("loot: unique rewards (port-only): gap exemption %t, pop ticket %t, max-level loot %t, seal drops %t (%s, %s, %s, %s)",

@@ -183,15 +183,21 @@ const dropGradeSeven = 7
 uniqueDropTableLevel
 
 The level a unique's equipment tables roll at. Native, and with
-SRO_UNIQUE_MAX_LEVEL_LOOT off, it is the unique's own level. On, it is the
-shard's highest installed level (loot.UniqueDropLevel: 90 native, 110 with
-the cap-110 catalog), never below the unique's own level. Port-only, not
-native (owner 2026-10-25): the level-gap exemption admitted the kill, and
-this keeps the reward from being the low-level table's junk.
+SRO_UNIQUE_MAX_LEVEL_LOOT off, it is the unique's own level. On, a unique
+in the installed catalog's top loot band (loot.UniqueInTopLootBand: own
+level within ten of the top) rolls at the shard's highest installed level
+(loot.UniqueDropLevel: 90 native, 110 with the cap-110 catalog), never
+below the unique's own level; every other unique keeps its own level.
+Port-only, not native (owner 2026-10-25, narrowed 2026-10-26): the
+level-gap exemption admitted the capped hunter's kill, and only the
+top-band uniques pay the top table for it.
 ================
 */
 func (rt *Runtime) uniqueDropTableLevel(mob monster.Instance) uint8 {
 	if !rt.UniqueRules.MaxLevelLoot || !RollsUniqueDrops(mob.Rarity()) {
+		return mob.Ref.Level
+	}
+	if !loot.UniqueInTopLootBand(mob.Ref.Level) {
 		return mob.Ref.Level
 	}
 	return max(mob.Ref.Level, loot.UniqueDropLevel())
@@ -387,15 +393,16 @@ equipmentGroup
 
 The class an equipment pick rolls from. Native, and for every ordinary
 monster, the level row's own weighted class (selectEquipmentGroup). A
-unique under SRO_UNIQUE_MAX_LEVEL_LOOT draws its ordinary (non-seal)
-equipment from the level's highest class instead, because the strength
-tiers of one degree differ by required level and a unique reward should be
-the top one; the seal tiers are picked by prepareUniqueSeals, so a rare
-pick keeps the row's own class distribution.
+top-band unique under SRO_UNIQUE_MAX_LEVEL_LOOT draws its ordinary
+(non-seal) equipment from the level's highest class instead, because the
+strength tiers of one degree differ by required level and a unique reward
+should be the top one; below the band the pick keeps the row's own class
+distribution, as do the seal tiers picked by prepareUniqueSeals.
 ================
 */
 func (rt *Runtime) equipmentGroup(monster monster.Instance, level uint8, rare bool) (int, bool) {
-	if !rare && rt.UniqueRules.MaxLevelLoot && RollsUniqueDrops(monster.Rarity()) {
+	if !rare && rt.UniqueRules.MaxLevelLoot && RollsUniqueDrops(monster.Rarity()) &&
+		loot.UniqueInTopLootBand(monster.Ref.Level) {
 		return loot.SpecialEquipmentGroup(level)
 	}
 	return rt.selectEquipmentGroup(level, rare)
@@ -715,11 +722,12 @@ func (rt *Runtime) planMonsterKillLoot(
 			admitted = append(kept, ticket)
 		}
 	}
-	// Port-only, not native (owner 2026-10-25): SRO_UNIQUE_SEAL_DROPS is the
-	// unique kill's guarantee — one Seal of Star every kill, Moon one in ten,
-	// Sun one in thirty, at the highest degree the drop level offers. Appended
-	// after admission and the drop cap like the ticket, so neither can take
-	// it; the ordinary rare rolls may still add seals on top.
+	// Port-only, not native (owner 2026-10-25, narrowed 2026-10-26):
+	// SRO_UNIQUE_SEAL_DROPS is the unique kill's guarantee — one Seal of
+	// Star every kill and a Moon one in ten, at the highest degree the drop
+	// level offers. There is no guaranteed Sun. Appended after admission and
+	// the drop cap like the ticket, so neither can take it; the ordinary
+	// rare rolls may still add seals on top.
 	if rt.UniqueRules.SealDrops {
 		for _, seal := range rt.prepareUniqueSeals(uniqueDropContext{mob: monster, at: at, owner: snapshot.Name, now: now}) {
 			seal.OwnerJID = ownerJID

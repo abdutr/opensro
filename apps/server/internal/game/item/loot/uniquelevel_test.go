@@ -62,6 +62,37 @@ func TestUniqueDropLevelKeepsNativeWhenTheTopRowIsEmpty(t *testing.T) {
 
 /*
 ================
+TestUniqueInTopLootBand
+
+The band is ten levels under the drop level and follows it: levels 80 to
+90 count on the native catalog, only 100 to 110 once the cap-110 catalog
+lifts the top.
+================
+*/
+func TestUniqueInTopLootBand(t *testing.T) {
+	before, beforeEquipment := cap110Installed, equipment
+	t.Cleanup(func() {
+		cap110Installed, equipment = before, beforeEquipment
+	})
+
+	cap110Installed = false
+	for level, want := range map[uint8]bool{20: false, 79: false, 80: true, 90: true, 94: true} {
+		if got := UniqueInTopLootBand(level); got != want {
+			t.Fatalf("native catalog: level %d in band = %v, want %v", level, got, want)
+		}
+	}
+
+	cap110Installed = true
+	equipment = topLevelEquipmentCatalog(beforeEquipment, expansionMonsterLevelCap, true)
+	for level, want := range map[uint8]bool{90: false, 99: false, 100: true, 110: true} {
+		if got := UniqueInTopLootBand(level); got != want {
+			t.Fatalf("cap-110 catalog: level %d in band = %v, want %v", level, got, want)
+		}
+	}
+}
+
+/*
+================
 topLevelEquipmentCatalog
 
 A copy of the catalog whose normal class row at the given level is either
