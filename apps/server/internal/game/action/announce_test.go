@@ -77,7 +77,7 @@ func drainedNoticeLines(t *testing.T, rt *Runtime) []noticeLine {
 				continue
 			}
 			p := frame.Payload
-			if frame.Opcode != 0x3667 || len(p) < 3 || (p[0] != wire.DropPlusNoticeChannel && p[0] != wire.JobKillNoticeChannel) {
+			if frame.Opcode != 0x3667 || len(p) < 3 || (p[0] != wire.DropPlusNoticeChannel && p[0] != wire.JobKillNoticeChannel && p[0] != wire.BreakNoticeChannel) {
 				t.Fatalf("not a notification frame: %#x % x", frame.Opcode, p)
 			}
 			n := int(p[1]) | int(p[2])<<8
@@ -100,7 +100,8 @@ func TestAnnouncementsFromEnv(t *testing.T) {
 	t.Setenv(EnvAnnounceSoxDrop, "on")
 	t.Setenv(EnvAnnouncePlus, "")
 	t.Setenv(EnvAnnounceJobKill, "TRUE")
-	if got := AnnouncementsFromEnv(); got != (Announcements{SoxDrop: true, JobKill: true}) {
+	t.Setenv(EnvAlchemyBreakNotice, "on")
+	if got := AnnouncementsFromEnv(); got != (Announcements{SoxDrop: true, JobKill: true, Break: true}) {
 		t.Fatalf("flags %+v", got)
 	}
 }
@@ -219,7 +220,10 @@ func TestSealDropNoticeFollowsTheMinDegreeTunable(t *testing.T) {
 TestSealDropNoticeNamesTheSeal
 
 With the shipped items, a drop notice names the item's seal with the
-client's own words (PARAM_RARE_*): A Star, B Moon, C Sun.
+client's own words (PARAM_RARE_*): A Star, B Moon, C Sun. Star and
+Moon keep the notice's original sentence; only the Sun is worded
+apart (#1640, owner decision 2026-10-26): it leads with its name in
+capitals and drops the parenthesis.
 ================
 */
 func TestSealDropNoticeNamesTheSeal(t *testing.T) {
@@ -237,9 +241,68 @@ func TestSealDropNoticeNamesTheSeal(t *testing.T) {
 		rt, _ := newTestRuntime(testCharacter(), items)
 		rt.Announce.SoxDrop = true
 		rt.announceSealDrops(testDivision, "Tiger Girl", []grounditem.Item{{Codename: codename, DroppedBy: "Looter"}}, 0)
-		want := "Looter has dropped " + ref.Name + " (" + seal + ") from Tiger Girl"
+		var want string
+		switch seal {
+		case "Seal Of Sun":
+			want = "SEAL OF SUN: Looter has dropped " + ref.Name + " from Tiger Girl"
+		default:
+			want = "Looter has dropped " + ref.Name + " (" + seal + ") from Tiger Girl"
+		}
 		if got := drainedNotices(t, rt); len(got) != 1 || got[0] != want {
 			t.Fatalf("%s: %q, want %q", codename, got, want)
+		}
+	}
+}
+
+/*
+================
+TestSealDropNoticeWordingFollowsTheTier
+
+#1640: Star and Moon keep the original sentence and only the Sun
+reads differently, leading with its name in capitals; an item whose
+seal cannot be read keeps the plain sentence.
+================
+*/
+func TestSealDropNoticeWordingFollowsTheTier(t *testing.T) {
+	items := staticItemSource{
+		"ITEM_CH_BLADE_06_A_RARE": {
+			RefObjID: 6001, Codename: "ITEM_CH_BLADE_06_A_RARE", Name: "D6 Star Blade",
+			TypeIDs:      [4]int64{3, 1, 6, 3},
+			NativeFields: enterworld.NewNativeFields(map[string]float64{"itemClass": 16, "rarity": 2}),
+		},
+		"ITEM_CH_BLADE_06_B_RARE": {
+			RefObjID: 6002, Codename: "ITEM_CH_BLADE_06_B_RARE", Name: "D6 Moon Blade",
+			TypeIDs:      [4]int64{3, 1, 6, 3},
+			NativeFields: enterworld.NewNativeFields(map[string]float64{"itemClass": 17, "rarity": 2}),
+		},
+		"ITEM_CH_BLADE_06_C_RARE": {
+			RefObjID: 6003, Codename: "ITEM_CH_BLADE_06_C_RARE", Name: "D6 Sun Blade",
+			TypeIDs:      [4]int64{3, 1, 6, 3},
+			NativeFields: enterworld.NewNativeFields(map[string]float64{"itemClass": 18, "rarity": 2}),
+		},
+	}
+	drops := []grounditem.Item{
+		{Codename: "ITEM_CH_BLADE_06_A_RARE", DroppedBy: "Looter"},
+		{Codename: "ITEM_CH_BLADE_06_B_RARE", DroppedBy: "Looter"},
+		{Codename: "ITEM_CH_BLADE_06_C_RARE", DroppedBy: "Looter"},
+		{Codename: "ITEM_CH_BLADE_06_D_RARE", DroppedBy: "Looter"},
+	}
+	rt, _ := newTestRuntime(testCharacter(), items)
+	rt.Announce.SoxDrop = true
+	rt.announceSealDrops(testDivision, "Tiger Girl", drops, 0)
+	want := []string{
+		"Looter has dropped D6 Star Blade (Seal Of Star) from Tiger Girl",
+		"Looter has dropped D6 Moon Blade (Seal Of Moon) from Tiger Girl",
+		"SEAL OF SUN: Looter has dropped D6 Sun Blade from Tiger Girl",
+		"Looter has dropped ITEM_CH_BLADE_06_D_RARE from Tiger Girl",
+	}
+	got := drainedNotices(t, rt)
+	if len(got) != len(want) {
+		t.Fatalf("posted %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("notice %d = %q, want %q", i, got[i], want[i])
 		}
 	}
 }
@@ -322,6 +385,80 @@ func TestPlusNoticeFollowsTheFlag(t *testing.T) {
 			!strings.HasSuffix(got[0], " to "+tc.want)) {
 			t.Fatalf("on=%v plus=%d: %q", tc.on, tc.outcome.Items[0].Plus, got)
 		}
+	}
+}
+
+/*
+================
+TestPlusNoticeTiersFollowTheSwitch
+
+#1739: with the tiers off, +10 and above read exactly as they do today;
+on, +10 leads "Great success!" and +11 (and +12) "LEGENDARY!", while +9
+keeps the plain line. The seal stays named under the budget, and an
+over-long line gives the seal up first and the lead next.
+================
+*/
+func TestPlusNoticeTiersFollowTheSwitch(t *testing.T) {
+	t.Setenv(EnvAnnouncePlusTiers, "on")
+	if !AnnouncementsFromEnv().PlusTiers {
+		t.Fatal("SRO_ANNOUNCE_PLUS_TIERS=on must tier the plus notice")
+	}
+	t.Setenv(EnvAnnouncePlusTiers, "")
+	if AnnouncementsFromEnv().PlusTiers {
+		t.Fatal("SRO_ANNOUNCE_PLUS_TIERS unset must keep the plain line")
+	}
+	items := enterworld.NewTextdataItems(gamedatatest.TextdataDir(t))
+	ref, ok := items.ItemRefByCodename("ITEM_CH_BLADE_08_C_RARE")
+	if !ok || ref.Name == "" {
+		t.Fatal("missing shipped item ITEM_CH_BLADE_08_C_RARE")
+	}
+	outcome := func(plus uint8) alchemy.Outcome {
+		return alchemy.Outcome{Success: true, Target: 13,
+			Items: []inventory.Item{{Slot: 13, Codename: "ITEM_CH_BLADE_08_C_RARE", Plus: plus}}}
+	}
+	plain := "Smith advanced " + ref.Name + " (Seal Of Sun) to +"
+	for _, tc := range []struct {
+		tiers bool
+		plus  uint8
+		want  string
+	}{
+		{false, 10, plain + "10"},
+		{false, 11, plain + "11"},
+		{false, 12, plain + "12"},
+		{true, 9, plain + "9"},
+		{true, 10, "Great success! " + plain + "10"},
+		{true, 11, "LEGENDARY! " + plain + "11"},
+		{true, 12, "LEGENDARY! " + plain + "12"},
+	} {
+		rt, _ := newTestRuntime(testCharacter(), items)
+		rt.Announce.Plus = true
+		rt.Announce.PlusTiers = tc.tiers
+		rt.announcePlus(testDivision, "Smith", outcome(tc.plus), 0)
+		if got := drainedNotices(t, rt); len(got) != 1 || got[0] != tc.want {
+			t.Fatalf("tiers=%v plus=%d: %q, want %q", tc.tiers, tc.plus, got, tc.want)
+		}
+	}
+	// An over-long line keeps the lead and gives the seal up first: the
+	// player name is sized so the sealed line overflows and the lead
+	// line fits.
+	long := strings.Repeat("W", 65-len([]rune(ref.Name)))
+	rt, _ := newTestRuntime(testCharacter(), items)
+	rt.Announce.Plus = true
+	rt.Announce.PlusTiers = true
+	rt.announcePlus(testDivision, long, outcome(11), 0)
+	want := "LEGENDARY! " + long + " advanced " + ref.Name + " to +11"
+	if got := drainedNotices(t, rt); len(got) != 1 || got[0] != want {
+		t.Fatalf("over-long tiered line: %q, want %q", got, want)
+	}
+	// A longer one gives the lead up too rather than lose the plus.
+	rt, _ = newTestRuntime(testCharacter(), items)
+	rt.Announce.Plus = true
+	rt.Announce.PlusTiers = true
+	rt.announcePlus(testDivision, strings.Repeat("W", noticeMaxUnits), outcome(11), 0)
+	got := drainedNotices(t, rt)
+	if len(got) != 1 || strings.Contains(got[0], "LEGENDARY") || strings.Contains(got[0], "Seal") ||
+		len(utf16.Encode([]rune(got[0]))) > noticeMaxUnits {
+		t.Fatalf("longest tiered line: %q", got)
 	}
 }
 

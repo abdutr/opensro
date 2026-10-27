@@ -237,7 +237,9 @@ function attackPress(
 		predictedRunUp: predicted,
 		jobKillNotices: true,
 		dropPlusNotices: true,
-		plusSevenNotices: true
+		plusSevenNotices: true,
+		breakNotices: true,
+		webTransport: false
 	} );
 	const navigation = product();
 	navigation.objects = [];

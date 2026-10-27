@@ -60,9 +60,11 @@ test("gameplay frame loop sends automatic pickup and consumes native completion"
 	assert.equal( gameplay.take()?.inventoryPending ?? false, false );
 	gameplay.experimental( {
 		predictedRunUp: false,
+		webTransport: false,
 		jobKillNotices: true,
 		dropPlusNotices: true,
 		plusSevenNotices: true,
+		breakNotices: true,
 		homingProjectiles: false,
 		smartPetPickup: false
 	} );
@@ -416,18 +418,22 @@ test("the item filter reaches the pickup loop through the experimental slice", (
 	gameplay.receive( { opcode: 0xb69e, payload: Uint8Array.of( 1, 8, 2, 0, 0, 0, 20, 0, 0, 0 ) }, 1 );
 	gameplay.experimental( {
 		predictedRunUp: false,
+		webTransport: false,
 		jobKillNotices: true,
 		dropPlusNotices: true,
 		plusSevenNotices: true,
+		breakNotices: true,
 		petPickupKinds: PICKUP_KIND_GOLD
 	} );
 	gameplay.step( 2, f.frame.local );
 	assert.equal( sent.length, 1 );
 	gameplay.experimental( {
 		predictedRunUp: false,
+		webTransport: false,
 		jobKillNotices: true,
 		dropPlusNotices: true,
 		plusSevenNotices: true,
+		breakNotices: true,
 		petPickupKinds: undefined
 	} );
 	gameplay.step( 3, f.frame.local );

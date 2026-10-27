@@ -63,6 +63,12 @@ export const EXPERIMENTAL_TABS: readonly {
 				description: "100% is native; lower values soften the scene."
 			},
 			{
+				key: "phoneRenderCap",
+				id: "experimental-phone-render-cap",
+				label: "Phone resolution",
+				description: "Phones: lighter scene while Render scale is 100%."
+			},
+			{
 				key: "uiScale",
 				id: "experimental-ui-scale",
 				label: "UI size",
@@ -91,12 +97,6 @@ export const EXPERIMENTAL_TABS: readonly {
 				id: "experimental-hdr-tone-map",
 				label: "HDR tone map",
 				description: "Float frame with filmic highlight roll-off."
-			},
-			{
-				key: "safeLoadingScreen",
-				id: "experimental-safe-loading-screen",
-				label: "Safe loading screen",
-				description: "Hide inappropriate loading images."
 			}
 		]
 	},
@@ -139,6 +139,12 @@ export const EXPERIMENTAL_TABS: readonly {
 				id: "experimental-homing-projectiles",
 				label: "Homing projectiles",
 				description: "Steer straight projectiles toward a moving target."
+			},
+			{
+				key: "sunDropMarker",
+				id: "experimental-sun-drop-marker",
+				label: "Seal of Sun drop marker",
+				description: "Mark your own degree-9+ Sun drops on the ground."
 			}
 		]
 	},
@@ -200,6 +206,19 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-touch-inspect",
 			label: "Tap shows item details",
 			description: "On touch, a tap on an item or skill keeps its tooltip up."
+		}, {
+			key: "webTransport",
+			id: "experimental-web-transport",
+			label: "WebTransport connection",
+			description: "Connect over QUIC/UDP; falls back to WebSocket."
+		}, {
+			// Moved from Notices (#1738): the window fits seven rows a tab
+			// and the break-notice row joins the shard notices; the option,
+			// its key and its default are unchanged.
+			key: "questTrackerMarkers",
+			id: "experimental-quest-tracker-markers",
+			label: "Quest target markers",
+			description: "Show every active quest's target on M and the minimap."
 		} ]
 	},
 	{
@@ -221,6 +240,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			label: "Plus +7 notices",
 			description: "Show the shard's +7 alchemy announcements."
 		}, {
+			key: "breakNotices",
+			id: "experimental-break-notices",
+			label: "Item break notices",
+			description: "Show the shard's item break announcements."
+		}, {
 			key: "uniqueDamageRank",
 			id: "experimental-unique-damage-rank",
 			label: "Unique damage ranking",
@@ -235,11 +259,6 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-short-notices",
 			label: "Short notices",
 			description: "Show notices for up to the original 7 seconds."
-		}, {
-			key: "questTrackerMarkers",
-			id: "experimental-quest-tracker-markers",
-			label: "Quest target markers",
-			description: "Show every active quest's target on M and the minimap."
 		} ]
 	},
 	{
@@ -275,6 +294,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-confirm-guild-ban",
 			label: "Confirm guild ban",
 			description: "Ask before Withdraw bans a guild member."
+		}, {
+			key: "safeLoadingScreen",
+			id: "experimental-safe-loading-screen",
+			label: "Safe loading screen",
+			description: "Hide inappropriate loading images."
 		} ]
 	},
 	{

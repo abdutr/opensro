@@ -21,9 +21,15 @@ const monsterTestRegion = 0x60a8
 
 func monsterInstanceByRef(t *testing.T, registry *MonsterState, refObjID uint32) monster.Instance {
 	t.Helper()
+	return monsterInstanceByRefIn(t, registry, refObjID, monsterTestRegion)
+}
+
+// monsterInstanceByRefIn is monsterInstanceByRef for a population in region.
+func monsterInstanceByRefIn(t *testing.T, registry *MonsterState, refObjID uint32, region uint16) monster.Instance {
+	t.Helper()
 	registry.StartDivision(monsterTestDivision)
 	registry.AdvancePopulation(registry.CurrentTimeMillis())
-	for _, instance := range registry.InstancesInRegions(monsterTestDivision, []uint16{monsterTestRegion}) {
+	for _, instance := range registry.InstancesInRegions(monsterTestDivision, []uint16{region}) {
 		if instance.Ref.RefObjID == refObjID {
 			return instance
 		}
@@ -34,6 +40,13 @@ func monsterInstanceByRef(t *testing.T, registry *MonsterState, refObjID uint32)
 
 func monsterLegFixture(t *testing.T, tactics monster.Tactics) (*MonsterMoverOps, monster.Instance) {
 	t.Helper()
+	return monsterLegFixtureIn(t, tactics, monsterTestRegion)
+}
+
+// monsterLegFixtureIn is monsterLegFixture with its nests in region (a
+// cave region puts the actor on the cave plane).
+func monsterLegFixtureIn(t *testing.T, tactics monster.Tactics, region uint16) (*MonsterMoverOps, monster.Instance) {
+	t.Helper()
 	template := monster.Template{
 		Refs: map[uint32]monster.MonsterRef{
 			1933: {RefObjID: 1933, TidWord: 0x00C6, Codename: "MOB_CH_MANGNYANG", WalkSpeed: 8, RunSpeed: 22, ScaleDenom: 100, BodyRadius: 6, MaxHP: 54},
@@ -41,12 +54,12 @@ func monsterLegFixture(t *testing.T, tactics monster.Tactics) (*MonsterMoverOps,
 		},
 	}
 	registry := NewMonsterState(monster.TemplateFromParts(template.Refs, []monster.NestRow{
-		{SpawnPoint: monster.SpawnPoint{RefObjID: 1933, RegionID: monsterTestRegion, X: 1000, Y: 20, Z: 1000}},
-		{SpawnPoint: monster.SpawnPoint{RefObjID: 2000, RegionID: monsterTestRegion, X: 900, Y: 20, Z: 900}},
+		{SpawnPoint: monster.SpawnPoint{RefObjID: 1933, RegionID: region, X: 1000, Y: 20, Z: 1000}},
+		{SpawnPoint: monster.SpawnPoint{RefObjID: 2000, RegionID: region, X: 900, Y: 20, Z: 900}},
 	}))
 	registry.StartDivision(monsterTestDivision)
 	registry.AdvancePopulation(time.Now().UnixMilli())
-	instance := monsterInstanceByRef(t, registry, 1933)
+	instance := monsterInstanceByRefIn(t, registry, 1933, region)
 	mover, _ := registry.Mover(monsterTestDivision, instance.Gid)
 	if err := mover.Transition(monster.MoverEventSpawnHoldElapsed, 0); err != nil {
 		t.Fatalf("seed idle mover: %v", err)
@@ -159,14 +172,14 @@ func decodeGoalPayload(t *testing.T, payload []byte) (gid uint32, region uint16,
 
 func decodeGoalSource(t *testing.T, payload []byte) MovementSource {
 	t.Helper()
-	if len(payload) < 24 || payload[13] != 1 {
+	if len(payload) < 28 || payload[13] != 1 {
 		t.Fatalf("goal has no complete source block: % X", payload)
 	}
 	return MovementSource{
 		RegionID: binary.LittleEndian.Uint16(payload[14:16]),
-		X:        float64(binary.LittleEndian.Uint16(payload[16:18])) / 10,
-		Y:        float64(math.Float32frombits(binary.LittleEndian.Uint32(payload[18:22]))),
-		Z:        float64(binary.LittleEndian.Uint16(payload[22:24])) / 10,
+		X:        float64(math.Float32frombits(binary.LittleEndian.Uint32(payload[16:20]))),
+		Y:        float64(math.Float32frombits(binary.LittleEndian.Uint32(payload[20:24]))),
+		Z:        float64(math.Float32frombits(binary.LittleEndian.Uint32(payload[24:28]))),
 	}
 }
 

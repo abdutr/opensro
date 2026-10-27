@@ -28,6 +28,13 @@ ExperimentalOptions
 export interface ExperimentalOptions {
 	// Port-only, not native. Reduced scene resolution requires explicit opt-in.
 	readonly renderScale: RenderScale;
+	// Port-only, not native: "Phone resolution" (#1806). On a phone, while
+	// Render scale is 100%, the scene is drawn at the largest render scale
+	// whose backing store fits PHONE_SCENE_PIXEL_BUDGET; the HUD keeps its
+	// full resolution. A render scale the player picks below 100 wins. On
+	// unless turned off (the owner's choice, 2026-10-27); off, or any
+	// display that is not a phone, is full resolution.
+	readonly phoneRenderCap: boolean;
 	// Port-only, not native: the interface drawn larger or smaller than the
 	// native 1:1 size (the platform's display scale). 100 is the native
 	// size; a missing or invalid stored value restores it.
@@ -100,6 +107,12 @@ export interface ExperimentalOptions {
 	// widens that one. On unless turned off (the owner's choice,
 	// 2026-10-19); off hides them from the banner and the chat log.
 	readonly plusSevenNotices: boolean;
+	// Port-only, not native: the shard's item-break announcements for
+	// characters who opted in on the account page (their own 0x3667
+	// channel, server wire.BreakNoticeChannel; SRO_ALCHEMY_BREAK_NOTICE,
+	// #1738). On unless turned off; off hides them from the banner and
+	// the chat log.
+	readonly breakNotices: boolean;
 	// Port-only, not native: when a unique the player damaged dies, the
 	// shard's damage ranking (0x3FBC, server SRO_UNIQUE_DAMAGE_RANK) opens
 	// in a window (unique-rank-hud.ts). Off unless turned on, so each
@@ -162,6 +175,11 @@ export interface ExperimentalOptions {
 	// (transport-auto-potion.ts). The original watches only the player
 	// (70C550). Off unless turned on.
 	readonly transportAutoPotion: boolean;
+	// Port-only, not native (#1448): connect over WebTransport (QUIC/UDP)
+	// first and fall back to the WebSocket when the path fails. Off unless
+	// turned on: the WebSocket stays the default until #1450's
+	// measurements say otherwise. Applies from the next connect.
+	readonly webTransport: boolean;
 	// Port-only, not native: left-clicking the attack pet's mini panel
 	// (CIFPetMiniInfo 6B3460 / 6B3760) or a companion's status portrait
 	// (CIFCOSStatus 6A9BC0) selects the companion and toggles its window
@@ -204,6 +222,11 @@ export interface ExperimentalOptions {
 	// the world map and the minimap, not only the one quest the journal
 	// tracks. Off unless turned on; off is the native tracked quest only.
 	readonly questTrackerMarkers: boolean;
+	// Port-only, not native (#1640): the player's own degree-9-or-higher
+	// Seal of Sun drops get a gold name plate and a soft ground ring, so
+	// the top seal reads differently the moment it lands. Other players'
+	// drops are never marked. Off unless turned on.
+	readonly sunDropMarker: boolean;
 }
 
 /*
@@ -234,6 +257,62 @@ renderScales
 */
 export function renderScales(): readonly RenderScale[] {
 	return [ DEFAULT_RENDER_SCALE, 75, 50 ];
+}
+
+// #1806: the scene's backing-store budget on a phone. An iPhone at device
+// pixel ratio 3 drew 2250 x 1206 (2.7 MP) and spiked past 100 ms about 670
+// times in 93 s; 1 MP puts that screen at render scale 50.
+export const PHONE_SCENE_PIXEL_BUDGET = 1_000_000;
+// The longest short screen side, in CSS pixels, a phone has. Tablets start
+// at 600 (a small Android tablet) and keep full resolution.
+export const PHONE_SHORT_SIDE_MAX = 500;
+
+/*
+================
+DisplayClass
+
+What the platform reports about the display: whether the primary pointer is
+coarse (a finger) and the screen's short side in CSS pixels.
+================
+*/
+export interface DisplayClass {
+	readonly coarsePointer: boolean;
+	readonly shortSide: number;
+}
+
+/*
+================
+phoneDisplay
+
+A phone is a coarse pointer on a small screen. A touch laptop has a fine
+primary pointer and a tablet a longer short side, so both keep the
+desktop rule.
+================
+*/
+export function phoneDisplay( display: DisplayClass ): boolean {
+	return display.coarsePointer && display.shortSide > 0 && display.shortSide <= PHONE_SHORT_SIDE_MAX;
+}
+
+/*
+================
+sceneRenderScale
+
+The render scale the scene is drawn at this frame. Only the phone cap
+changes the saved scale, and only while that scale is the default 100:
+the largest scale whose backing store fits the budget, else the smallest.
+================
+*/
+export function sceneRenderScale(
+	video: Pick<ExperimentalVideo, "renderScale" | "phoneRenderCap">,
+	viewport: { readonly width: number; readonly height: number; },
+	phone: boolean
+): RenderScale {
+	if ( !phone || !video.phoneRenderCap || video.renderScale !== DEFAULT_RENDER_SCALE ) return video.renderScale;
+	const scales = renderScales(), pixels = viewport.width * viewport.height;
+	for ( const scale of scales ) {
+		if ( pixels * scale * scale / 10000 <= PHONE_SCENE_PIXEL_BUDGET ) return scale;
+	}
+	return scales[scales.length - 1]!;
 }
 
 /*
@@ -283,8 +362,8 @@ experimentalOptions
 
 Only an explicit true enables a toggle, except smoothCamera, enchantSparks,
 compressedTextures, sharedActorRoom, mainThreadOwnWalk, greyDisabledTabs, jobKillNotices, dropPlusNotices,
-plusSevenNotices, fitWindowLabels, dropOnBagTab, exchangeClickShortcuts, noticeLinks, shortNotices, confirmGuildBan,
-petClickOpensWindow, smartPetPickup, touchInspect and dungeonCharacterPvs, which only an explicit false turns off.
+plusSevenNotices, breakNotices, fitWindowLabels, dropOnBagTab, exchangeClickShortcuts, noticeLinks, shortNotices, confirmGuildBan,
+petClickOpensWindow, smartPetPickup, touchInspect, phoneRenderCap and dungeonCharacterPvs, which only an explicit false turns off.
 The pickup filter's kinds (petFilterGold and its siblings) also only turn off
 explicitly, and are read only while petPickupFilter is on.
 Missing or invalid render scales restore full resolution and missing or
@@ -301,6 +380,7 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 	const enabled = ( key: ExperimentalKey ) => record[key] === true;
 	return {
 		renderScale: record.renderScale === 75 || record.renderScale === 50 ? record.renderScale : DEFAULT_RENDER_SCALE,
+		phoneRenderCap: record.phoneRenderCap !== false,
 		uiScale: uiScaleStop( record.uiScale ) ?? UI_SCALE_DEFAULT,
 		chatTimestamps: enabled( "chatTimestamps" ),
 		safeLoadingScreen: enabled( "safeLoadingScreen" ),
@@ -324,6 +404,7 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		jobKillNotices: record.jobKillNotices !== false,
 		dropPlusNotices: record.dropPlusNotices !== false,
 		plusSevenNotices: record.plusSevenNotices !== false,
+		breakNotices: record.breakNotices !== false,
 		uniqueDamageRank: enabled( "uniqueDamageRank" ),
 		vHidesCompanions: enabled( "vHidesCompanions" ),
 		dungeonCharacterPvs: record.dungeonCharacterPvs !== false,
@@ -336,6 +417,7 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		confirmGuildBan: record.confirmGuildBan !== false,
 		homingProjectiles: enabled( "homingProjectiles" ),
 		transportAutoPotion: enabled( "transportAutoPotion" ),
+		webTransport: enabled( "webTransport" ),
 		petClickOpensWindow: record.petClickOpensWindow !== false,
 		smartPetPickup: record.smartPetPickup !== false,
 		petPickupFilter: enabled( "petPickupFilter" ),
@@ -346,7 +428,8 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		petFilterOther: record.petFilterOther !== false,
 		touchInspect: record.touchInspect !== false,
 		expandedWorldMap: enabled( "expandedWorldMap" ),
-		questTrackerMarkers: enabled( "questTrackerMarkers" )
+		questTrackerMarkers: enabled( "questTrackerMarkers" ),
+		sunDropMarker: enabled( "sunDropMarker" )
 	};
 }
 
@@ -383,6 +466,7 @@ time. Every flag off and renderScale 100 preserve the native frame.
 */
 export interface ExperimentalVideo {
 	readonly renderScale: RenderScale;
+	readonly phoneRenderCap: boolean;
 	readonly postProcessing: boolean;
 	readonly anisotropicFiltering: boolean;
 	readonly heightFog: boolean;
@@ -406,6 +490,7 @@ experimentalVideo
 export function experimentalVideo( options: ExperimentalOptions ): ExperimentalVideo {
 	return {
 		renderScale: options.renderScale,
+		phoneRenderCap: options.phoneRenderCap,
 		postProcessing: options.postProcessing,
 		anisotropicFiltering: options.anisotropicFiltering,
 		heightFog: options.heightFog,
@@ -435,8 +520,11 @@ export interface ExperimentalGameplay {
 	readonly jobKillNotices: boolean;
 	readonly dropPlusNotices: boolean;
 	readonly plusSevenNotices: boolean;
+	readonly breakNotices: boolean;
+	readonly webTransport: boolean;
 	readonly homingProjectiles?: boolean;
 	readonly smartPetPickup?: boolean;
+	readonly sunDropMarker?: boolean;
 	// The pickup pet filter's kind mask (ground-item's PICKUP_KIND bits);
 	// undefined while the filter row is off, which is the native loop.
 	readonly petPickupKinds?: number;
@@ -450,11 +538,14 @@ experimentalGameplay
 export function experimentalGameplay( options: ExperimentalOptions ): ExperimentalGameplay {
 	return {
 		predictedRunUp: options.predictedRunUp,
+		webTransport: options.webTransport,
 		jobKillNotices: options.jobKillNotices,
 		dropPlusNotices: options.dropPlusNotices,
 		plusSevenNotices: options.plusSevenNotices,
+		breakNotices: options.breakNotices,
 		homingProjectiles: options.homingProjectiles,
 		smartPetPickup: options.smartPetPickup,
+		sunDropMarker: options.sunDropMarker,
 		petPickupKinds: options.petPickupFilter ?
 			(options.petFilterGold ? PICKUP_KIND_GOLD : 0) |
 			(options.petFilterEquipment ? PICKUP_KIND_EQUIPMENT : 0) |

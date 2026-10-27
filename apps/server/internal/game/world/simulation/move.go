@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"opensro.online/server/internal/game/item/wire"
+	worldgeom "opensro.online/server/internal/game/world"
 )
 
 // Native agent-result codes shared by movement parsing and validation.
@@ -79,10 +80,7 @@ func NormalizeMovementRequest(m MovementRequest) MovementRequest {
 	if m.Mode < 1 {
 		m.Mode = MovementAckDestinationMode
 	}
-	low := 0.0
-	if IsDungeonRegion(m.RegionID) {
-		low = -0x8000
-	}
+	low := worldgeom.LocalCoordinateFloor(m.RegionID)
 	m.X = clampFloat(m.X, low, 0xffff)
 	m.Y = clampFloat(m.Y, -0x8000, 0x7fff)
 	m.Z = clampFloat(m.Z, low, 0xffff)
@@ -122,45 +120,56 @@ func MovementSourceFromSpawn(spawn Spawn) MovementSource {
 ================
 BuildMovementAckPayload
 
-Encodes the 0xB738 payload exactly as the client parser consumes it
-(sub_776200 -> sub_776170):
+Encodes the 0xB738 payload. The mode arms are the v1.150 parser's
+shape, exactly as the native client consumes them (sub_776200 ->
+sub_776170):
 
 	[u32 objectId][u8 mode]
-	then mode!=0: [u16 region][u16 x][u16 y][u16 z]
+	then mode!=0: [u16 region][i16 x][i16 y][i16 z]
 	or   mode=0:  [u8 angularMode][u16 headingWord]
-	then [u8 1][u16 srcRegion][u16 srcX*10][f32 srcY][u16 srcZ*10]
+
+The source block after them is this port's wire, not the retail shape.
+Protocol 11 (#1744, releaseprotocol.MovementContract) carries it as
+[f32 srcX][f32 srcY][f32 srcZ] on every floor:
+
+	then [u8 1][u16 srcRegion][f32 srcX][f32 srcY][f32 srcZ]
 	or   [u8 0]
 
 The angular arm mirrors sub_776170's mode-0 read ([u8 angularFlag]
 [u16 headingWord] @0x77619b..0x7761b1) and carries the request's own bytes
 back - the same verbatim-echo contract as the destination arm.
 
-RETAIL WIRE PARITY: the native 0xB738 handler (sub_776200 at
-0x007762c1..0x007762ff) divides the source-block X/Z i16 fields by 10.0f,
-so the server PREMULTIPLIES them by 10 (the middle Y dword stays a raw
-float). The active-probe's unscaled source block is the known-wrong shape
-(REV-1 finding 4); do not copy it.
+The native parser read the source x/z as i16 x10 words, a +-3276.7
+range the port's one-frame tomb floors (0x8002-0x8006) overflow: the
+block had to be omitted there (#1684) and viewers saw the walker
+frozen until the next settle. The owner waived byte-parity for this
+one block (#1744, option 5): only our server and our browser client
+read these bytes, the modes and the echo are unchanged, and the
+source is always present - no floor ever takes the [u8 0] arm for
+range reasons again. This is the first payload that cannot be
+byte-diffed against a retail capture; the parity vectors pin the
+mode arms byte-for-byte and the source arm value-for-value instead.
 ================
 */
 func BuildMovementAckPayload(objectID uint32, movement MovementRequest, source *MovementSource) []byte {
-	w := wire.NewWriter(20)
+	w := wire.NewWriter(24)
 	w.U32(objectID).U8(movement.Mode)
 
 	if movement.Mode == MovementAckAngularMode {
 		w.U8(movement.AngularMode).U16(movement.HeadingWord)
 	} else {
 		w.U16(movement.RegionID).
-			U16(roundU16(movement.X)).
-			U16(roundU16(movement.Y)).
-			U16(roundU16(movement.Z))
+			U16(roundI16Word(movement.X)).
+			U16(roundI16Word(movement.Y)).
+			U16(roundI16Word(movement.Z))
 	}
 
 	if source != nil {
 		w.U8(1).
 			U16(source.RegionID).
-			U16(roundU16(source.X * 10)).
+			F32(float32(source.X)).
 			F32(float32(source.Y)).
-			U16(roundU16(source.Z * 10))
+			F32(float32(source.Z))
 	} else {
 		w.U8(0)
 	}

@@ -132,10 +132,8 @@ func newGameplayPlane(
 		return nil, fmt.Errorf("portal catalogue: %w", err)
 	}
 	// Port-only, not native: the reverse return scroll's map destinations.
-	if action.ReverseReturnMapFromEnv() {
-		items.ConfigureReverseReturnMap(true)
-		log.Infof("reverse return: map destinations ON (%s), %d points", action.EnvReverseReturnMap,
-			len(items.ReverseReturnMapPoints()))
+	if err := configureReverseReturnMap(items, devPaths.TextdataDir); err != nil {
+		return nil, err
 	}
 	// One clock for the bootstrap and the tick sweep, read through the runtime
 	// so a swapped clock reaches both; world entry hands re-raised pet-skill
@@ -219,7 +217,7 @@ func newGameplayPlane(
 		return nil, fmt.Errorf("commerce catalogue: %w", err)
 	}
 	items.ConfigureStorage(authorityStore)
-	betaSilk, mallAuthority, err := composeBetaSilk(authorityStore, items, deps)
+	betaSilk, mallAuthority, err := composeBetaSilk(authorityStore, deps)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +233,7 @@ func newGameplayPlane(
 	if err := items.ConfigureMall(devPaths.TextdataDir, mallAuthority, mallExtra); err != nil {
 		return nil, fmt.Errorf("mall catalogue: %w", err)
 	}
+	items.StatRecallWindows = commerce.StatRecallListed(mallExtra)
 	deps.SceneReferenceFrames = items.CommerceReferenceSeed
 	deps.ReconcileSceneObjects = items.ReconcileScene
 	deps.ExtraRefItemCodenames = items.GroundRefItemCodenames
@@ -258,6 +257,9 @@ func newGameplayPlane(
 		return nil, err
 	}
 	water.SetClosedObjectRescue(movement.ClosedObjectRescueFromEnv())
+	water.SetCaveSeamStep(movement.CaveSeamStepFromEnv())
+	water.SetCaveModernChase(movement.CaveModernChaseFromEnv())
+	water.SetCaveObstacleEscape(movement.CaveObstacleEscapeFromEnv())
 	water.SetDeepWaterRefusal(movement.DeepWaterRefusalFromEnv())
 	// Native dungeon interest is the 3x3 message-block neighbourhood of each
 	// dungeon's DOF grid (worldgeom dungeon_grid.go). Installed before the
@@ -543,6 +545,12 @@ never acquire another character transaction.
 ================
 */
 func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefinitionLoader) error {
+	if game.betaSilk != nil {
+		// SRO_BETA_SILK_ACTIVE_ONLY (port-only): any player-sent command
+		// counts as play (#1604 P5), so the transport hub reports every
+		// dispatched game frame; NoteActivity is inert with the flag off.
+		hub.OnSessionActivity(game.betaSilk.NoteActivity)
+	}
 	if err := game.deps.Validate(); err != nil {
 		return fmt.Errorf("bootstrap dependencies: %w", err)
 	}
@@ -714,6 +722,11 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	if err = applyLevelCap(stats); err != nil {
 		return err
 	}
+	// The configured cap reaches the party-matching bound directly and
+	// the client through the world-entry blob (publishedLevelCap keeps
+	// the native blob byte-identical with the expansion off).
+	game.matches.LevelLimit = stats.LevelLimit
+	game.deps.LevelCap = publishedLevelCap(stats.LevelLimit)
 	stats.MasteryTotalOverride = masteryOverride
 	if masteryOverride != 0 {
 		log.Infof("progression: beta total mastery allowance %d for both races (%s)", masteryOverride, progression.EnvBetaMastery)
@@ -757,7 +770,7 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	// wins over it - Sun then drops nothing, which must not be silent.
 	game.items.SunRate = progression.SunRateFromEnv()
 	if game.items.SunRate.Active() {
-		log.Infof("loot: degree-9 Seal of Sun drops at class mass x%d on levels 76-90 (%s=%d)", game.items.SunRate.MassMultiplier(), progression.EnvSunDropRate, game.items.SunRate.Rate())
+		log.Infof("loot: degree-9 Seal of Sun drops at class mass up to x%d on levels 76-90, capped at the Moon class (#1605 P1) (%s=%d)", game.items.SunRate.MassMultiplier(), progression.EnvSunDropRate, game.items.SunRate.Rate())
 		if game.items.SunEventOnly.Enabled() {
 			log.Warnf("loot: %s is on while %s=%d: the event rule excludes every degree-9 Sun drop, so the rate widens a class that drops nothing; turn one of them off", progression.EnvSunEventOnly, progression.EnvSunDropRate, game.items.SunRate.Rate())
 		}
@@ -790,77 +803,9 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	if err := game.validateQuestMarkerRoster(); err != nil {
 		return err
 	}
-	quests.PlanInventory = game.items.PlanQuestInventory
-	quests.SpawnQuestMonster = func(character *enterworld.Character, request simulation.QuestMonsterSpawn) bool {
-		return game.items.SpawnQuestMonster(game.divisionID, character, request)
-	}
-	game.items.CanPlaceQuestTrap = quests.CanPlaceTrap
-	game.items.CaptureQuestTrap = quests.CaptureQuestTrap
-	game.items.UpdateQuestInventory = quests.InventoryUpdater()
-	game.items.UpdateQuestKill = quests.KillUpdater()
-	game.items.QuestTravelBlocks = quests.TravelBlocks
-	game.items.AdvanceQuestMinute = quests.AdvanceMinute
-	game.items.AdvanceQuestItem = quests.AdvanceItemUse
-	game.items.ForgetQuestItem = quests.ForgetItemUse
-	game.items.UseQuestItem = quests.BeginItemUse
-	game.items.ReleaseQuestCapturesOnDeath = quests.ReleaseCapturesOnDeath
-	game.items.AdvanceQuestCalendar = quests.AdvanceCalendar
-	game.items.QuestMonsterDrops = quests.MonsterDrops
-	game.items.NpcQuests = action.NpcQuestHooks{
-		Prepare: quests.PrepareNpcQuest,
-		Options: func(divisionID string, character *enterworld.Character, npcCodename string) []action.NpcQuestOption {
-			var rows []quest.NpcOption
-			var resuscitation bool
-			game.deps.Read(divisionID, func() {
-				rows = quests.OptionsForNpc(character, npcCodename)
-				resuscitation = quest.ResuscitationAvailable(character, npcCodename)
-			})
-			out := make([]action.NpcQuestOption, 0, len(rows))
-			for _, row := range rows {
-				pages := make([]action.NpcDialogPage, 0, len(row.Pages))
-				for _, page := range row.Pages {
-					pages = append(pages, action.NpcDialogPage{PromptSymbol: page.PromptSymbol, ReplySymbol: page.ReplySymbol,
-						RefuseSymbol: page.RefuseSymbol, RefuseResponseSymbol: page.RefuseResponseSymbol})
-				}
-				branches := make([]action.NpcDialogBranch, 0, len(row.Branches))
-				for _, branch := range row.Branches {
-					branches = append(branches, action.NpcDialogBranch{Codename: branch.Codename, ReplySymbol: branch.ReplySymbol,
-						AcceptResponseSymbol: branch.AcceptResponseSymbol})
-				}
-				out = append(out, action.NpcQuestOption{
-					Codename: row.Codename, TitleSymbol: row.TitleSymbol,
-					PromptSymbol: row.PromptSymbol, Complete: row.Complete,
-					AcceptResponseSymbol: row.AcceptResponseSymbol, DenyResponseSymbol: row.DenyResponseSymbol,
-					Pages: pages, Branches: branches, Informational: row.Informational, SideTalk: row.SideTalk,
-					AcceptRowSymbol: row.AcceptRowSymbol,
-				})
-			}
-			if resuscitation {
-				out = append(out, action.NpcQuestOption{
-					Codename: quest.ResuscitationService, TitleSymbol: "SN_TALK_QSP_ALL_POTION_1_07",
-					PromptSymbol: "SN_TALK_QSP_ALL_POTION_1_00", Immediate: true,
-				})
-			}
-			return out
-		},
-		Accept: func(character *enterworld.Character, codename string) ([]wire.Frame, error) {
-			result, err := quests.StartQuest(character, codename)
-			return result.Frames, err
-		},
-		Finish: func(character *enterworld.Character, codename, npcCodename string) ([]wire.Frame, error) {
-			if codename == quest.ResuscitationService {
-				result, err := quests.OpenResuscitation(character, npcCodename)
-				return result.Frames, err
-			}
-			result, err := quests.AdvanceNpcQuest(character, codename, npcCodename)
-			return result.Frames, err
-		},
-		Refuse: func(character *enterworld.Character, codename string) ([]wire.Frame, error) {
-			result, err := quests.RefuseQuestOffer(character, codename)
-			return result.Frames, err
-		},
-	}
-	game.items.GMQuests = gmQuestHooks(quests)
+	// The quest runtime's doors and the item lane's quest hooks live
+	// with the quest composition (wiring_quests.go).
+	game.wireQuestDoors(quests)
 	game.items.UpdateExperience = stats.ExperienceUpdater()
 	game.items.RefundExperience = stats.ExperienceRefundUpdater()
 	game.items.RecallStatPoints = stats.StatRecallUpdater()

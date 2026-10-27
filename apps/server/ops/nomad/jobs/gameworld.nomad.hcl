@@ -84,6 +84,14 @@ variable "webtransport_public" {
   default = "off"
 }
 
+# The public UDP host:port the WT listener binds when webtransport_public
+# is on. Empty (default) keeps the Nomad-allocated loopback bind; the
+# deployer refuses the public switch without it.
+variable "transport_wt_addr" {
+  type    = string
+  default = ""
+}
+
 variable "host_network" {
   type    = string
   default = "loopback"
@@ -143,12 +151,12 @@ variable "move_client_clip" {
 # entry); beta_player_map shows every online player on the world map (M).
 variable "beta_starter_kit" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 variable "beta_player_map" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # Beta builds share the 5000 total mastery budget. Set off for native
@@ -168,6 +176,20 @@ variable "level_cap" {
 
 # Port-only, not native: optional database-authored Alexandria field content.
 variable "cap110_monsters" {
+  type    = string
+  default = "off"
+}
+
+# Port-only, not native: the level-100 slice of that population, admitted
+# for hunting separately (#1741); switches on with the cap-110 catalogue.
+variable "cap110_level100" {
+  type    = string
+  default = "off"
+}
+
+# Port-only, not native: degree-10/11 equipment set bonuses (#1747). The
+# v1.150 client ships no set rows, so off is the native state.
+variable "cap110_set_bonuses" {
   type    = string
   default = "off"
 }
@@ -192,7 +214,7 @@ variable "pharaoh_tomb_gear_rate" {
 # new credits; a launch wipes or zeroes it. "on" is 50.
 variable "beta_silk" {
   type    = string
-  default = "50"
+  default = "off"
 }
 
 # beta_silk_active_only credits the beta silk hour only while the character
@@ -239,6 +261,33 @@ variable "fast_den_return" {
 variable "unique_damage_rank" {
   type    = string
   default = "off"
+}
+
+# cave_seam_step lets a monster on the native cave route step through a
+# doorway whose landing point a whole-unit step would stop short of
+# (port-only, not native; owner decision 2026-10-26). "off" is the
+# original step, which can leave the monster pacing at such a doorway.
+variable "cave_seam_step" {
+  type    = string
+  default = "on"
+}
+
+# cave_modern_chase sends a monster chasing through a cave along the port's
+# planner (A* over the cells, string-pulled) instead of the original's
+# region route (port-only, not native; owner decision 2026-10-26). "off" is
+# the original route, which can leave a monster pacing on a cell line.
+variable "cave_modern_chase" {
+  type    = string
+  default = "on"
+}
+
+# cave_obstacle_escape lets a mover whose step starts inside a cave
+# obstacle circle walk out of it (port-only, not native; owner decision
+# 2026-10-26). "off" is the original circle test, which stops every step
+# deeper into a circle that covers a ramp doorway.
+variable "cave_obstacle_escape" {
+  type    = string
+  default = "on"
 }
 
 # closed_object_rescue moves a character that logs in inside a closed object
@@ -359,6 +408,22 @@ variable "teleport_grace" {
   default = "off"
 }
 
+# premium_upgrade lets a strictly higher-grade premium ticket replace the
+# running lower one (owner decision 2026-10-25, #1624). Port-only, not
+# native; "off" refuses a second ticket while one runs.
+variable "premium_upgrade" {
+  type    = string
+  default = "off"
+}
+
+# kill_stats counts kills and EXP per online hour by level band for the
+# staff console (#1639, #1604 P10). Port-only, not native; "off" counts
+# nothing and the economy route answers 404.
+variable "kill_stats" {
+  type    = string
+  default = "off"
+}
+
 # trade_tiers rates a caravan's stars by its cargo's gold value (5M, 10M,
 # 20M, 35M, 50M) and raises trade profit between Jangan and Donwhang +50%,
 # Hotan +100%, Samarkand +200%, Constantinople +300% (port-only, not
@@ -456,9 +521,34 @@ variable "announce_sox_drop" {
   default = "on"
 }
 
+# seal_board counts sealed drops for the site's weekly seal board, by job
+# alias with Star, Moon and Sun apart (port-only, not native; owner
+# decision 2026-10-25, #1604 P9). "off" is native: nothing counts.
+variable "seal_board" {
+  type    = string
+  default = "off"
+}
+
+# seal_census opens the staff-only seal census route (the console's
+# sealcensus tab counts seal items by degree and tier, name-free; port-only,
+# not native; owner decision 2026-10-26, #1604 P13 / #1691). "off" is
+# native: the route does not exist.
+variable "seal_census" {
+  type    = string
+  default = "off"
+}
+
 variable "announce_plus" {
   type    = string
   default = "on"
+}
+
+# announce_plus_tiers leads a +10 plus notice with "Great success!" and
+# a +11 or higher one with "LEGENDARY!" (port-only, not native; owner
+# decision 2026-10-26, #1739). "off" is the plain plus line.
+variable "announce_plus_tiers" {
+  type    = string
+  default = "off"
 }
 
 variable "announce_job_kill" {
@@ -480,6 +570,15 @@ variable "job_kill_notice_repeat" {
 variable "announce_most_wanted" {
   type    = string
   default = "on"
+}
+
+# alchemy_break_notice announces the destroyed reinforcement item of a
+# character who opted in on the account page, by job alias or "a player",
+# never a character name (port-only, not native; owner-approved vote
+# 2026-10-26, #1604 P7.2 / #1738). "off" is native: no notice.
+variable "alchemy_break_notice" {
+  type    = string
+  default = "off"
 }
 
 # thief_party_bonus gives a party +10% monster EXP and gold per member
@@ -536,6 +635,9 @@ variable "trade_job_hunter_percent_cap" {
 
 # reverse_return_map adds map destinations to the reverse return scroll
 # (port-only, not native). Anything but "on" keeps the native two points.
+# On, the destinations are the VSRO client's refoptionalteleport table when
+# the game data was built after scripts/import_vsro_optional_teleport.py,
+# else the inferred town gates and unique monster areas.
 variable "reverse_return_map" {
   type    = string
   default = ""
@@ -546,6 +648,12 @@ variable "reverse_return_map" {
 variable "hunting_guide" {
   type    = string
   default = ""
+}
+
+# Optional GM-only target references; off leaves the native roster unchanged.
+variable "gm_training_dummy" {
+  type    = string
+  default = "off"
 }
 
 # gm_setspeed admits a GM's /SETSPEED (port-only, not native; owner decision
@@ -609,7 +717,7 @@ variable "attack_pet_expansion" {
 
 variable "beta_growth" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # beta_growth_bands gives level bands their own EXP/SP multiplier: "pace"
@@ -617,17 +725,17 @@ variable "beta_growth" {
 # (owner, 2026-10-24). Empty keeps every level at the pace.
 variable "beta_growth_bands" {
   type    = string
-  default = "1-59:pace,60-69:1639,70-79:1215,80-89:748,90-94:532,95-99:431,100-104:351,105-110:289"
+  default = ""
 }
 
 variable "beta_skill_exp_rate" {
   type    = string
-  default = "100"
+  default = "1"
 }
 
 variable "beta_drop_rate" {
   type    = string
-  default = "20"
+  default = "1"
 }
 
 # beta_drop_mix gives item families their own beta drop rate (port-only, not
@@ -639,7 +747,7 @@ variable "beta_drop_rate" {
 # GameWorld at boot.
 variable "beta_drop_mix" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # shop_extra_goods adds NPC shop goods beyond the v1.150 stock (port-only,
@@ -733,7 +841,7 @@ variable "job_goods_teleport" {
 # keeps today's drops.
 variable "beta_shop_only_degree9" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # elixir_drops_off keeps every elixir out of monster drops (port-only, not
@@ -757,7 +865,7 @@ variable "alchemy_material_drops_off" {
 
 variable "beta_drop_cap" {
   type    = string
-  default = "16"
+  default = "0"
 }
 
 # 100 keeps gold per kill near its level before #463 stopped multiplying the
@@ -765,7 +873,7 @@ variable "beta_drop_cap" {
 # owner 2026-10-19).
 variable "beta_gold_rate" {
   type    = string
-  default = "100"
+  default = "1"
 }
 
 # instant_inventory_expansion makes quest bag slots usable at the turn-in
@@ -778,7 +886,7 @@ variable "instant_inventory_expansion" {
 
 variable "beta_rare_rate" {
   type    = string
-  default = "5"
+  default = "1"
 }
 
 # beta_seal_rates multiplies each rare seal's chance on top of beta_rare_rate
@@ -787,7 +895,7 @@ variable "beta_rare_rate" {
 # Moon twice, Sun as it is. "off" keeps every seal at beta_rare_rate.
 variable "beta_seal_rates" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # sun_event_only keeps degree-9 Seal of Sun gear out of non-unique monster
@@ -850,7 +958,7 @@ variable "unique_seal_drops" {
 # owner decision 2026-10-18). "off" keeps the authored row.
 variable "beta_unique_respawn" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # stack_sizes raises item stack caps per group (port-only, not native), e.g.
@@ -892,9 +1000,17 @@ variable "public_api_addr" {
   default = "127.0.0.1:8790"
 }
 
+# The GameWorld's tick must never wait behind another job's burst.
+# Nomad turns a task's cpu (MHz) into its cgroup CPU weight, so under
+# contention each task's share is its own reservation over the sum of
+# the contending reservations; weights cost nothing on an idle host.
+# The default therefore outweighs the Agent's reservation (500) by
+# more than ten to one. An operator value (-gameworld-cpu) replaces
+# it: keep it at least ten times the largest other reservation on the
+# host, and below the node's total compute, or the job cannot place.
 variable "cpu" {
   type    = number
-  default = 2000
+  default = 6000
 }
 
 variable "memory_mb" {
@@ -1031,6 +1147,8 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_BETA_MASTERY                        = var.beta_mastery
         SRO_LEVEL_CAP                      = var.level_cap
         SRO_CAP110_MONSTERS                = var.cap110_monsters
+        SRO_CAP110_LEVEL100                = var.cap110_level100
+        SRO_CAP110_SET_BONUSES             = var.cap110_set_bonuses
         SRO_PHARAOH_TOMB                   = var.pharaoh_tomb
         SRO_PHARAOH_TOMB_GEAR_RATE         = var.pharaoh_tomb_gear_rate
         SRO_BETA_SILK                           = var.beta_silk
@@ -1041,6 +1159,9 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_FAST_DEN_RETURN                     = var.fast_den_return
         SRO_UNIQUE_DAMAGE_RANK                  = var.unique_damage_rank
         SRO_CLOSED_OBJECT_RESCUE                = var.closed_object_rescue
+        SRO_CAVE_SEAM_STEP                      = var.cave_seam_step
+        SRO_CAVE_MODERN_CHASE                   = var.cave_modern_chase
+        SRO_CAVE_OBSTACLE_ESCAPE                = var.cave_obstacle_escape
         SRO_DEEP_WATER_REFUSAL                  = var.deep_water_refusal
         SRO_MOST_WANTED                         = var.most_wanted
         SRO_MOST_WANTED_TEST                    = var.most_wanted_test
@@ -1050,6 +1171,8 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_MOST_WANTED_STREAK_NOTICE           = var.most_wanted_streak_notice
         SRO_TRADE_TIERS                         = var.trade_tiers
         SRO_TELEPORT_GRACE                      = var.teleport_grace
+        SRO_PREMIUM_UPGRADE                     = var.premium_upgrade
+        SRO_KILL_STATS                          = var.kill_stats
         SRO_TRADE_ROUTE_DONWHANG_PERCENT        = var.trade_route_donwhang_percent
         SRO_TRADE_ROUTE_HOTAN_PERCENT           = var.trade_route_hotan_percent
         SRO_TRADE_ROUTE_SAMARKAND_PERCENT       = var.trade_route_samarkand_percent
@@ -1062,7 +1185,10 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_MALL_TRANSPORT_SPEED                = var.mall_transport_speed
         SRO_MALL_RIDE_SPEED                     = var.mall_ride_speed
         SRO_ANNOUNCE_SOX_DROP                   = var.announce_sox_drop
+        SRO_SEAL_BOARD                          = var.seal_board
+        SRO_SEAL_CENSUS                         = var.seal_census
         SRO_ANNOUNCE_PLUS                       = var.announce_plus
+        SRO_ANNOUNCE_PLUS_TIERS                 = var.announce_plus_tiers
         SRO_ANNOUNCE_JOB_KILL                   = var.announce_job_kill
         SRO_JOB_KILL_NOTICE_REPEAT              = var.job_kill_notice_repeat
         SRO_JOB_KILL_NOTICES_PER_MINUTE         = var.job_kill_notices_per_minute
@@ -1073,6 +1199,7 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_SHORT_NOTICE_FADE_MS                = var.short_notice_fade_ms
         SRO_CHAT_ACK_TIMEOUT_MS                 = var.chat_ack_timeout_ms
         SRO_ANNOUNCE_MOST_WANTED                = var.announce_most_wanted
+        SRO_ALCHEMY_BREAK_NOTICE                = var.alchemy_break_notice
         SRO_THIEF_PARTY_BONUS                   = var.thief_party_bonus
         SRO_THIEF_PARTY_PERCENT_EACH            = var.thief_party_percent_each
         SRO_THIEF_PARTY_PERCENT_CAP             = var.thief_party_percent_cap
@@ -1083,6 +1210,7 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_TRADE_JOB_HUNTER_PERCENT_CAP        = var.trade_job_hunter_percent_cap
         SRO_REVERSE_RETURN_MAP                  = var.reverse_return_map
         SRO_GM_SETSPEED                         = var.gm_setspeed
+        SRO_GM_TRAINING_DUMMY                   = var.gm_training_dummy
         SRO_ALCHEMY_RATES                       = var.alchemy_rates
         SRO_ALCHEMY_MAX_PLUS                    = var.alchemy_max_plus
         SRO_TEAM_DEATH_REVIVE                   = var.team_death_revive
@@ -1123,7 +1251,7 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_ALEXANDRIA                          = var.alexandria
         SRO_PUBLIC_API_ADDR                     = var.public_api_addr
         SRO_PUBLIC_API_TOKEN_PATH               = "${NOMAD_SECRETS_DIR}/public-api-token"
-        TRANSPORT_WT_ADDR                       = "${NOMAD_IP_transport}:${NOMAD_PORT_transport}"
+        TRANSPORT_WT_ADDR                       = var.transport_wt_addr != "" ? var.transport_wt_addr : "${NOMAD_IP_transport}:${NOMAD_PORT_transport}"
         TRANSPORT_WS_ADDR                       = "${NOMAD_IP_transport}:${NOMAD_PORT_transport}"
         TRANSPORT_CERT_DIR                      = var.cert_dir
         TRANSPORT_CERT_FILE                     = var.transport_cert_file

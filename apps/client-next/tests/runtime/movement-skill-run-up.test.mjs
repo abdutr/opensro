@@ -197,9 +197,11 @@ function gameplayPress( predicted = true ) {
 	game.seed( local );
 	game.experimental( {
 		predictedRunUp: predicted,
+		webTransport: false,
 		jobKillNotices: true,
 		dropPlusNotices: true,
-		plusSevenNotices: true
+		plusSevenNotices: true,
+		breakNotices: true
 	} );
 	const navigation = product();
 	navigation.objects = [];
@@ -310,7 +312,9 @@ function gameplayPressSpaced( rarity = 0, distance = 84, rangeBonus = false ) {
 		predictedRunUp: true,
 		jobKillNotices: true,
 		dropPlusNotices: true,
-		plusSevenNotices: true
+		plusSevenNotices: true,
+		breakNotices: true,
+		webTransport: false
 	} );
 	const navigation = product();
 	navigation.objects = [];

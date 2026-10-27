@@ -17,7 +17,7 @@ import (
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/wire"
-	"opensro.online/server/internal/game/world/simulation"
+	worldgeom "opensro.online/server/internal/game/world"
 )
 
 /*
@@ -82,7 +82,7 @@ func (rt *Runtime) petAreaTargets(step petCombatStep, primary petCombatTarget, s
 	}
 	world := domain.CharacterWorldInstance(step.snapshot)
 	for _, present := range rt.PopulationPlayers(step.key.division, step.nowMs) {
-		if present.World != world || simulation.IsDungeonRegion(present.Spawn.RegionID) != simulation.IsDungeonRegion(from.RegionID) {
+		if present.World != world || !worldgeom.SamePlane(present.Spawn.RegionID, from.RegionID) {
 			continue
 		}
 		owner := rt.findCharacterByGid(step.key.division, present.GID)
@@ -208,6 +208,12 @@ func (rt *Runtime) strikePetTargets(step petCombatStep, primary petCombatTarget,
 		rt.crowAfterAttack(step, wolfTargets)
 	}
 	echoFrames := rt.penguinAfterSpell(step, primary, skill, append([]petCombatTarget{primary}, secondary...), strikes)
+	if len(wolfTargets) > 0 && step.trained != nil && !step.trained.penguinRepeat {
+		for _, gid := range wolfTargets {
+			rt.petGearElements(step, gid)
+		}
+		rt.petGearProcs(step.key.division, step.state.character, step.pet.GID, primary.gid, primary.at, false, step.nowMs)
+	}
 	rt.wolfHuntRend(step, primary, first.strike)
 	rt.wolfExecuteAttack(step.key.division, step.state.character, step.pet.GID, 0, wolfTargets, step.nowMs)
 	step.state.public = append(step.state.public, public...)
